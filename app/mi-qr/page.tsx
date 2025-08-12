@@ -1,154 +1,164 @@
-"use client"
-
-import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { ArrowLeft, Download, Share2, Copy, CheckCircle } from "lucide-react"
+import { QrCode, Copy, Share2, Download } from 'lucide-react'
+import { toast } from "@/hooks/use-toast"
+import { useAuth } from "@/hooks/use-auth"
+import { useEffect, useState } from "react"
+import { obtenerConductor } from "@/lib/database"
+import { Conductor } from "@/lib/supabase"
 
-export default function MiQR() {
-  const [monto, setMonto] = useState("")
-  const [concepto, setConcepto] = useState("Pago de viaje")
-  const [copiado, setCopiado] = useState(false)
+export default function MiQRPage() {
+  const { user } = useAuth()
+  const [conductor, setConductor] = useState<Conductor | null>(null)
+  const [qrData, setQrData] = useState<string>("")
 
-  const datosQR = {
-    nombre: "Carlos Mendoza",
-    telefono: "70123456",
-    vehiculo: "Toyota Hiace - ABC123",
-    sindicato: "27 de Noviembre - Warnes",
+  useEffect(() => {
+    const loadConductorData = async () => {
+      if (user?.id) {
+        const conductorInfo = await obtenerConductor(user.id)
+        setConductor(conductorInfo)
+        if (conductorInfo?.codigo_conductor) {
+          // Generar un QR más completo para el conductor
+          const data = JSON.stringify({
+            type: "conductor_qr",
+            conductorId: conductorInfo.id,
+            codigo: conductorInfo.codigo_conductor,
+            nombre: conductorInfo.usuario?.nombre || "Conductor",
+            vehiculo: conductorInfo.modelo_vehiculo,
+            placa: conductorInfo.placa_vehiculo,
+            // Puedes añadir más datos relevantes aquí
+          })
+          setQrData(data)
+        }
+      }
+    }
+    loadConductorData()
+  }, [user])
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(qrData)
+    toast({
+      title: "Copiado",
+      description: "El código QR ha sido copiado al portapapeles.",
+    })
   }
 
-  const copiarDatos = () => {
-    const texto = `Pago a: ${datosQR.nombre}\nTeléfono: ${datosQR.telefono}\nVehículo: ${datosQR.vehiculo}\nSindicato: ${datosQR.sindicato}`
-    navigator.clipboard.writeText(texto)
-    setCopiado(true)
-    setTimeout(() => setCopiado(false), 2000)
+  const handleShare = async () => {
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: "Mi Código QR de Conductor",
+          text: "Escanea mi QR para iniciar un viaje o calificarme:",
+          url: qrData, // En un entorno real, esto sería una URL a una página que muestre el QR
+        })
+        toast({
+          title: "Compartido",
+          description: "El código QR ha sido compartido exitosamente.",
+        })
+      } catch (error) {
+        console.error("Error al compartir:", error)
+        toast({
+          title: "Error",
+          description: "No se pudo compartir el código QR.",
+          variant: "destructive",
+        })
+      }
+    } else {
+      handleCopy() // Fallback a copiar si no hay Web Share API
+    }
+  }
+
+  const handleDownload = () => {
+    // Simular la descarga de una imagen QR
+    const canvas = document.createElement("canvas")
+    const ctx = canvas.getContext("2d")
+
+    if (ctx) {
+      canvas.width = 300
+      canvas.height = 350
+
+      ctx.fillStyle = "#ffffff"
+      ctx.fillRect(0, 0, canvas.width, canvas.height)
+
+      ctx.fillStyle = "#000000"
+      ctx.font = "bold 18px Arial"
+      ctx.textAlign = "center"
+      ctx.fillText("CÓDIGO QR CONDUCTOR", canvas.width / 2, 30)
+
+      // Placeholder para el QR
+      ctx.strokeStyle = "#000000"
+      ctx.strokeRect(50, 60, 200, 200)
+      ctx.font = "16px Arial"
+      ctx.fillText("QR CODE HERE", canvas.width / 2, 160)
+
+      ctx.font = "14px Arial"
+      ctx.fillText(`Código: ${conductor?.codigo_conductor || 'N/A'}`, canvas.width / 2, 290);
+      ctx.fillText(`Conductor: ${conductor?.usuario?.nombre || 'N/A'}`, canvas.width / 2, 310);
+
+      const link = document.createElement("a")
+      link.download = `qr-conductor-${conductor?.codigo_conductor || 'generico'}.png`
+      link.href = canvas.toDataURL("image/png")
+      link.click()
+
+      toast({
+        title: "Descargado",
+        description: "La imagen del código QR ha sido descargada.",
+      })
+    }
+  }
+
+  if (!user) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen p-4">
+        <p className="text-lg text-gray-600">Cargando información del usuario...</p>
+      </div>
+    )
+  }
+
+  if (!conductor) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen p-4">
+        <p className="text-lg text-gray-600">No se encontró información de conductor para este usuario.</p>
+        <p className="text-sm text-gray-500">Asegúrate de que tu cuenta esté configurada como conductor.</p>
+      </div>
+    )
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <div className="bg-green-600 text-white p-4">
-        <div className="flex items-center gap-3">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="text-white hover:bg-green-700"
-            onClick={() => window.history.back()}
-          >
-            <ArrowLeft className="w-5 h-5" />
-          </Button>
-          <div>
-            <h1 className="text-lg font-semibold">Mi Código QR</h1>
-            <p className="text-green-100 text-sm">Para recibir pagos</p>
+    <div className="flex flex-col items-center justify-center min-h-screen bg-gray-50 p-4">
+      <Card className="w-full max-w-sm">
+        <CardHeader className="text-center">
+          <CardTitle className="text-2xl font-bold text-green-600">Mi Código QR</CardTitle>
+          <p className="text-sm text-gray-500">Para que los pasajeros inicien viajes o te califiquen</p>
+        </CardHeader>
+        <CardContent className="flex flex-col items-center gap-6">
+          <div className="relative w-48 h-48 bg-white border-2 border-gray-300 rounded-lg flex items-center justify-center p-2">
+            {/* En una implementación real, aquí iría un componente de QR Code */}
+            <QrCode className="w-32 h-32 text-gray-400" />
+            <div className="absolute bottom-2 text-xs text-gray-500">
+              {conductor.codigo_conductor || "Cargando..."}
+            </div>
           </div>
-        </div>
-      </div>
-
-      <div className="p-4 max-w-md mx-auto">
-        {/* Código QR */}
-        <Card className="mb-6">
-          <CardContent className="p-8 text-center">
-            <div className="w-64 h-64 bg-white border-2 border-gray-300 rounded-lg mx-auto mb-4 flex items-center justify-center">
-              <div
-                className="w-56 h-56 bg-black"
-                style={{
-                  backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 120 120'%3E%3Crect width='120' height='120' fill='white'/%3E%3Cg fill='black'%3E%3Crect x='0' y='0' width='8' height='8'/%3E%3Crect x='16' y='0' width='8' height='8'/%3E%3Crect x='32' y='0' width='8' height='8'/%3E%3Crect x='48' y='0' width='8' height='8'/%3E%3Crect x='64' y='0' width='8' height='8'/%3E%3Crect x='80' y='0' width='8' height='8'/%3E%3Crect x='96' y='0' width='8' height='8'/%3E%3Crect x='112' y='0' width='8' height='8'/%3E%3Crect x='0' y='16' width='8' height='8'/%3E%3Crect x='32' y='16' width='8' height='8'/%3E%3Crect x='64' y='16' width='8' height='8'/%3E%3Crect x='96' y='16' width='8' height='8'/%3E%3Crect x='0' y='32' width='8' height='8'/%3E%3Crect x='16' y='32' width='8' height='8'/%3E%3Crect x='48' y='32' width='8' height='8'/%3E%3Crect x='80' y='32' width='8' height='8'/%3E%3Crect x='112' y='32' width='8' height='8'/%3E%3Crect x='16' y='48' width='8' height='8'/%3E%3Crect x='32' y='48' width='8' height='8'/%3E%3Crect x='48' y='48' width='8' height='8'/%3E%3Crect x='64' y='48' width='8' height='8'/%3E%3Crect x='96' y='48' width='8' height='8'/%3E%3Crect x='0' y='64' width='8' height='8'/%3E%3Crect x='16' y='64' width='8' height='8'/%3E%3Crect x='32' y='64' width='8' height='8'/%3E%3Crect x='48' y='64' width='8' height='8'/%3E%3Crect x='64' y='64' width='8' height='8'/%3E%3Crect x='80' y='64' width='8' height='8'/%3E%3Crect x='96' y='64' width='8' height='8'/%3E%3Crect x='112' y='64' width='8' height='8'/%3E%3Crect x='0' y='80' width='8' height='8'/%3E%3Crect x='32' y='80' width='8' height='8'/%3E%3Crect x='64' y='80' width='8' height='8'/%3E%3Crect x='96' y='80' width='8' height='8'/%3E%3Crect x='16' y='96' width='8' height='8'/%3E%3Crect x='32' y='96' width='8' height='8'/%3E%3Crect x='48' y='96' width='8' height='8'/%3E%3Crect x='80' y='96' width='8' height='8'/%3E%3Crect x='112' y='96' width='8' height='8'/%3E%3Crect x='0' y='112' width='8' height='8'/%3E%3Crect x='16' y='112' width='8' height='8'/%3E%3Crect x='32' y='112' width='8' height='8'/%3E%3Crect x='48' y='112' width='8' height='8'/%3E%3Crect x='64' y='112' width='8' height='8'/%3E%3Crect x='80' y='112' width='8' height='8'/%3E%3Crect x='96' y='112' width='8' height='8'/%3E%3Crect x='112' y='112' width='8' height='8'/%3E%3C/g%3E%3C/svg%3E")`,
-                  backgroundSize: "cover",
-                }}
-              />
-            </div>
-
-            <h3 className="text-xl font-bold mb-2">{datosQR.nombre}</h3>
-            <p className="text-gray-600 mb-1">{datosQR.vehiculo}</p>
-            <p className="text-sm text-gray-500">{datosQR.sindicato}</p>
-          </CardContent>
-        </Card>
-
-        {/* Información del Conductor */}
-        <Card className="mb-6">
-          <CardHeader>
-            <CardTitle className="text-lg">Información de Pago</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="flex justify-between">
-              <span className="text-gray-600">Conductor:</span>
-              <span className="font-medium">{datosQR.nombre}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-gray-600">Teléfono:</span>
-              <span className="font-medium">{datosQR.telefono}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-gray-600">Vehículo:</span>
-              <span className="font-medium">{datosQR.vehiculo}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-gray-600">Sindicato:</span>
-              <span className="font-medium">{datosQR.sindicato}</span>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Personalizar Pago */}
-        <Card className="mb-6">
-          <CardHeader>
-            <CardTitle className="text-lg">Personalizar Pago</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="space-y-2">
-              <Label>Monto (Opcional)</Label>
-              <Input placeholder="Bs. 15.00" type="number" value={monto} onChange={(e) => setMonto(e.target.value)} />
-            </div>
-            <div className="space-y-2">
-              <Label>Concepto</Label>
-              <Input placeholder="Pago de viaje" value={concepto} onChange={(e) => setConcepto(e.target.value)} />
-            </div>
-            <Button className="w-full">Generar QR Personalizado</Button>
-          </CardContent>
-        </Card>
-
-        {/* Acciones */}
-        <div className="space-y-3">
-          <Button variant="outline" className="w-full bg-transparent" onClick={copiarDatos}>
-            {copiado ? (
-              <>
-                <CheckCircle className="w-4 h-4 mr-2" />
-                ¡Copiado!
-              </>
-            ) : (
-              <>
-                <Copy className="w-4 h-4 mr-2" />
-                Copiar Información
-              </>
-            )}
-          </Button>
-
-          <Button variant="outline" className="w-full bg-transparent">
-            <Share2 className="w-4 h-4 mr-2" />
-            Compartir QR
-          </Button>
-
-          <Button variant="outline" className="w-full bg-transparent">
+          <div className="text-center">
+            <p className="text-lg font-semibold">{conductor.usuario?.nombre}</p>
+            <p className="text-sm text-gray-600">{conductor.modelo_vehiculo} ({conductor.placa_vehiculo})</p>
+          </div>
+          <div className="flex gap-2 w-full">
+            <Button variant="outline" className="flex-1" onClick={handleCopy}>
+              <Copy className="w-4 h-4 mr-2" />
+              Copiar
+            </Button>
+            <Button variant="outline" className="flex-1" onClick={handleShare}>
+              <Share2 className="w-4 h-4 mr-2" />
+              Compartir
+            </Button>
+          </div>
+          <Button className="w-full bg-green-600 hover:bg-green-700" onClick={handleDownload}>
             <Download className="w-4 h-4 mr-2" />
             Descargar QR
           </Button>
-        </div>
-
-        {/* Instrucciones */}
-        <Card className="mt-6">
-          <CardContent className="p-4">
-            <h4 className="font-semibold mb-2">¿Cómo usar tu QR?</h4>
-            <ul className="text-sm text-gray-600 space-y-1">
-              <li>• Los pasajeros pueden escanear tu QR con cualquier app bancaria</li>
-              <li>• El pago se procesa automáticamente</li>
-              <li>• Recibirás una notificación cuando se complete el pago</li>
-              <li>• Puedes personalizar el monto y concepto según necesites</li>
-            </ul>
-          </CardContent>
-        </Card>
-      </div>
+        </CardContent>
+      </Card>
     </div>
   )
 }

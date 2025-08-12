@@ -64,13 +64,14 @@ export function useAuth() {
       nombre: string
       telefono?: string
       tipo_usuario: "usuario" | "conductor" | "secretaria"
+      codigo_conductor?: string // Añadir para conductores
     },
   ) => {
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
       options: {
-        data: userData,
+        data: userData, // Esto se guarda en user_metadata de auth.users
       },
     })
     return { data, error }

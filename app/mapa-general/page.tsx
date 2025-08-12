@@ -1,263 +1,158 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
-import { Input } from "@/components/ui/input"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { ArrowLeft, Search, Filter, MapPin, Navigation, Layers } from "lucide-react"
+import { MapPin, Car, Phone, MessageCircle, Loader2, XCircle } from "lucide-react"
 import MapaTiempoReal from "@/components/mapa-tiempo-real"
+import { obtenerConductoresActivos } from "@/lib/database"
+import type { Conductor } from "@/lib/supabase"
 
-export default function MapaGeneral() {
-  const [filtroEstado, setFiltroEstado] = useState("todos")
-  const [busqueda, setBusqueda] = useState("")
-  const [vistaCapas, setVistaCapas] = useState("normal")
+export default function MapaGeneralPage() {
+  const [conductores, setConductores] = useState<Conductor[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
-  // Todos los vehículos del sindicato
-  const todosVehiculos = [
-    {
-      id: "1",
-      conductor: "Carlos Mendoza",
-      vehiculo: "Toyota Hiace",
-      placa: "ABC123",
-      lat: -17.7833,
-      lng: -63.1821,
-      estado: "disponible" as const,
-      pasajeros: 8,
-      capacidad: 12,
-      telefono: "70123456",
-    },
-    {
-      id: "2",
-      conductor: "María González",
-      vehiculo: "Nissan Urvan",
-      placa: "XYZ789",
-      lat: -17.79,
-      lng: -63.19,
-      estado: "en_viaje" as const,
-      pasajeros: 10,
-      capacidad: 12,
-      destino: "Montero",
-      tiempoEstimado: 15,
-      telefono: "70987654",
-    },
-    {
-      id: "3",
-      conductor: "Pedro Rojas",
-      vehiculo: "Ford Transit",
-      placa: "DEF456",
-      lat: -17.77,
-      lng: -63.17,
-      estado: "disponible" as const,
-      pasajeros: 5,
-      capacidad: 12,
-      telefono: "70456789",
-    },
-    {
-      id: "4",
-      conductor: "Ana Morales",
-      vehiculo: "Chevrolet Express",
-      placa: "GHI789",
-      lat: -17.795,
-      lng: -63.195,
-      estado: "fuera_servicio" as const,
-      pasajeros: 0,
-      capacidad: 15,
-      telefono: "70321654",
-    },
-    {
-      id: "5",
-      conductor: "Luis Vargas",
-      vehiculo: "Mercedes Sprinter",
-      placa: "JKL012",
-      lat: -17.76,
-      lng: -63.16,
-      estado: "en_viaje" as const,
-      pasajeros: 12,
-      capacidad: 15,
-      destino: "Warnes",
-      tiempoEstimado: 8,
-      telefono: "70654321",
-    },
-  ]
+  useEffect(() => {
+    const fetchConductores = async () => {
+      try {
+        const activeConductors = await obtenerConductoresActivos()
+        setConductores(activeConductors)
+      } catch (err) {
+        console.error("Error fetching active conductors:", err)
+        setError("No se pudieron cargar los conductores activos.")
+      } finally {
+        setLoading(false)
+      }
+    }
+    fetchConductores()
+  }, [])
 
-  // Filtrar vehículos
-  const vehiculosFiltrados = todosVehiculos.filter((vehiculo) => {
-    const coincideBusqueda =
-      busqueda === "" ||
-      vehiculo.conductor.toLowerCase().includes(busqueda.toLowerCase()) ||
-      vehiculo.placa.toLowerCase().includes(busqueda.toLowerCase())
-
-    const coincidenEstado = filtroEstado === "todos" || vehiculo.estado === filtroEstado
-
-    return coincideBusqueda && coincidenEstado
-  })
-
-  const estadisticas = {
-    total: todosVehiculos.length,
-    disponibles: todosVehiculos.filter((v) => v.estado === "disponible").length,
-    enViaje: todosVehiculos.filter((v) => v.estado === "en_viaje").length,
-    fueraServicio: todosVehiculos.filter((v) => v.estado === "fuera_servicio").length,
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen bg-gray-50">
+        <Loader2 className="w-12 h-12 animate-spin text-blue-600 mb-4" />
+        <p className="text-lg text-gray-700">Cargando mapa general...</p>
+      </div>
+    )
   }
+
+  if (error) {
+    return (
+      <div className="min-h-screen bg-gray-50 p-4 flex flex-col items-center justify-center">
+        <Card className="w-full max-w-md text-center">
+          <CardContent className="p-6">
+            <XCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
+            <h2 className="text-xl font-bold text-red-800 mb-2">Error</h2>
+            <p className="text-red-700 mb-4">{error}</p>
+            <Button onClick={() => window.location.reload()}>Reintentar</Button>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
+
+  const handleVehiculoClick = (vehiculo: Conductor) => {
+    // Aquí puedes implementar una acción al hacer clic en un vehículo,
+    // por ejemplo, mostrar más detalles o iniciar una llamada/mensaje.
+    console.log("Vehículo clickeado:", vehiculo)
+    // alert(`Conductor: ${vehiculo.conductor}\nEstado: ${vehiculo.estado}`);
+  }
+
+  const mappedVehiculos = conductores
+    .filter((c) => c.ubicacion_lat && c.ubicacion_lng) // Solo mostrar si tienen ubicación
+    .map((c) => ({
+      id: c.id,
+      conductor: c.usuario?.nombre || "N/A",
+      vehiculo: c.vehiculo || "N/A",
+      placa: c.placa || "N/A",
+      lat: c.ubicacion_lat!,
+      lng: c.ubicacion_lng!,
+      estado: c.estado,
+      pasajeros: 0, // No tenemos esta info aquí, se podría añadir si es relevante
+      capacidad: c.capacidad || 12,
+      telefono: c.usuario?.telefono || "N/A",
+    }))
 
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
-      <div className="bg-purple-600 text-white p-4">
-        <div className="flex items-center gap-3">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="text-white hover:bg-purple-700"
-            onClick={() => window.history.back()}
-          >
-            <ArrowLeft className="w-5 h-5" />
-          </Button>
+      <div className="bg-blue-600 text-white p-4">
+        <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-lg font-semibold">Mapa General</h1>
-            <p className="text-purple-100 text-sm">Todos los vehículos en tiempo real</p>
+            <h1 className="text-xl font-bold">Mapa General de Vehículos</h1>
+            <p className="text-blue-100">Sindicato 27 de Noviembre</p>
           </div>
+          {/* Podrías añadir un botón de perfil o ajustes aquí */}
         </div>
       </div>
 
-      <div className="p-4 space-y-4">
-        {/* Estadísticas Rápidas */}
-        <div className="grid grid-cols-4 gap-3">
-          <Card>
-            <CardContent className="p-3 text-center">
-              <p className="text-2xl font-bold text-blue-600">{estadisticas.total}</p>
-              <p className="text-xs text-gray-600">Total</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-3 text-center">
-              <p className="text-2xl font-bold text-green-600">{estadisticas.disponibles}</p>
-              <p className="text-xs text-gray-600">Disponibles</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-3 text-center">
-              <p className="text-2xl font-bold text-blue-600">{estadisticas.enViaje}</p>
-              <p className="text-xs text-gray-600">En Viaje</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-3 text-center">
-              <p className="text-2xl font-bold text-gray-600">{estadisticas.fueraServicio}</p>
-              <p className="text-xs text-gray-600">Fuera</p>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Controles de Filtro */}
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex gap-3">
-              <div className="flex-1">
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
-                  <Input
-                    placeholder="Buscar conductor o placa..."
-                    value={busqueda}
-                    onChange={(e) => setBusqueda(e.target.value)}
-                    className="pl-10"
-                  />
-                </div>
-              </div>
-              <Select value={filtroEstado} onValueChange={setFiltroEstado}>
-                <SelectTrigger className="w-40">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="todos">Todos</SelectItem>
-                  <SelectItem value="disponible">Disponibles</SelectItem>
-                  <SelectItem value="en_viaje">En Viaje</SelectItem>
-                  <SelectItem value="fuera_servicio">Fuera de Servicio</SelectItem>
-                </SelectContent>
-              </Select>
-              <Button variant="outline" size="icon">
-                <Filter className="w-4 h-4" />
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Mapa Principal */}
-        <Card>
+      <div className="p-4">
+        <Card className="mb-4">
           <CardHeader>
-            <div className="flex items-center justify-between">
-              <CardTitle className="flex items-center gap-2">
-                <MapPin className="w-5 h-5" />
-                Mapa en Tiempo Real
-              </CardTitle>
-              <div className="flex gap-2">
-                <Button variant="outline" size="sm">
-                  <Layers className="w-4 h-4 mr-2" />
-                  Capas
-                </Button>
-                <Button variant="outline" size="sm">
-                  <Navigation className="w-4 h-4 mr-2" />
-                  Centrar
-                </Button>
-              </div>
-            </div>
+            <CardTitle className="flex items-center gap-2">
+              <MapPin className="w-5 h-5" />
+              Vehículos en Tiempo Real
+            </CardTitle>
           </CardHeader>
           <CardContent>
-            <MapaTiempoReal
-              vehiculos={vehiculosFiltrados}
-              centroMapa={{ lat: -17.7833, lng: -63.1821 }}
-              zoom={11}
-              mostrarRutas={true}
-            />
+            {mappedVehiculos.length > 0 ? (
+              <MapaTiempoReal
+                vehiculos={mappedVehiculos}
+                centroMapa={{ lat: -17.7833, lng: -63.1821 }} // Centro en Santa Cruz
+                zoom={12}
+                onVehiculoClick={handleVehiculoClick}
+              />
+            ) : (
+              <div className="text-center py-8 text-gray-500">
+                <Car className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                <p>No hay vehículos activos en este momento.</p>
+                <p className="text-sm">Intenta más tarde o contacta a la secretaría.</p>
+              </div>
+            )}
           </CardContent>
         </Card>
 
-        {/* Rutas Principales */}
         <Card>
           <CardHeader>
-            <CardTitle>Rutas Principales</CardTitle>
+            <CardTitle className="flex items-center gap-2">
+              <Car className="w-5 h-5" />
+              Conductores Activos ({conductores.length})
+            </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-3">
-              {[
-                { nombre: "Warnes → Montero", vehiculos: 3, tiempo: "25 min", distancia: "18 km" },
-                { nombre: "Montero → Warnes", vehiculos: 2, tiempo: "25 min", distancia: "18 km" },
-                { nombre: "Warnes → Santa Cruz", vehiculos: 1, tiempo: "45 min", distancia: "35 km" },
-              ].map((ruta, index) => (
-                <div key={index} className="flex items-center justify-between p-3 border rounded-lg">
-                  <div>
-                    <p className="font-medium">{ruta.nombre}</p>
-                    <p className="text-sm text-gray-600">
-                      {ruta.distancia} • {ruta.tiempo}
-                    </p>
+              {conductores.map((conductor) => (
+                <div key={conductor.id} className="flex items-center justify-between p-3 border rounded-lg">
+                  <div className="flex items-center gap-3">
+                    <div
+                      className={`w-10 h-10 rounded-full flex items-center justify-center text-white ${
+                        conductor.estado === "disponible" ? "bg-green-500" : "bg-yellow-500"
+                      }`}
+                    >
+                      <Car className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <p className="font-medium">{conductor.usuario?.nombre}</p>
+                      <p className="text-sm text-gray-600">
+                        {conductor.vehiculo} - {conductor.placa}
+                      </p>
+                    </div>
                   </div>
-                  <Badge variant="outline">{ruta.vehiculos} vehículos</Badge>
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => window.open(`tel:${conductor.usuario?.telefono}`, "_self")}
+                    >
+                      <Phone className="w-4 h-4" />
+                    </Button>
+                    <Button size="sm" variant="outline">
+                      <MessageCircle className="w-4 h-4" />
+                    </Button>
+                  </div>
                 </div>
               ))}
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Alertas y Notificaciones */}
-        <Card className="border-orange-200 bg-orange-50">
-          <CardHeader>
-            <CardTitle className="text-orange-800">Alertas del Sistema</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-2">
-              <div className="flex items-center gap-2 text-sm">
-                <div className="w-2 h-2 bg-orange-500 rounded-full"></div>
-                <span>Tráfico intenso en la ruta Warnes-Montero</span>
-              </div>
-              <div className="flex items-center gap-2 text-sm">
-                <div className="w-2 h-2 bg-red-500 rounded-full"></div>
-                <span>Vehículo ABC123 sin actualizar ubicación por 10 min</span>
-              </div>
-              <div className="flex items-center gap-2 text-sm">
-                <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                <span>Todos los vehículos operando normalmente</span>
-              </div>
             </div>
           </CardContent>
         </Card>

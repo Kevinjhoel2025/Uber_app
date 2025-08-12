@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Textarea } from "@/components/ui/textarea"
-import { Star, ThumbsUp, ThumbsDown, MessageCircle, Award, Shield, Clock } from "lucide-react"
+import { Star, ThumbsUp, Award, Shield, Clock, Loader2 } from "lucide-react"
 import {
   crearCalificacion,
   obtenerCalificacionesConductor,
@@ -15,27 +15,17 @@ import {
   crearRespuestaCalificacion,
 } from "@/lib/database"
 import type { Calificacion, EstadisticasConductor, ConductorBadge } from "@/lib/supabase"
+import { toast } from "@/hooks/use-toast"
+import { useAuth } from "@/hooks/use-auth"
 
 interface CalificacionProps {
   conductorId: string
   conductorNombre: string
   conductorFoto?: string
-  viajeId: string
-  usuarioId: string
+  viajeId: string // Solo relevante si mostrarHistorial es false
+  usuarioId: string // Solo relevante si mostrarHistorial es false
   onCalificar?: (calificacion: any) => void
   mostrarHistorial?: boolean
-}
-
-interface CalificacionData {
-  rating: number
-  comentario: string
-  aspectos: {
-    puntualidad: number
-    vehiculo: number
-    conduccion: number
-    amabilidad: number
-  }
-  recomendaria: boolean
 }
 
 export default function SistemaCalificacion({
@@ -47,6 +37,8 @@ export default function SistemaCalificacion({
   onCalificar,
   mostrarHistorial = false,
 }: CalificacionProps) {
+  const { usuario: currentUser, loading: authLoading } = useAuth()
+
   const [rating, setRating] = useState(0)
   const [hoverRating, setHoverRating] = useState(0)
   const [comentario, setComentario] = useState("")
@@ -58,7 +50,7 @@ export default function SistemaCalificacion({
   })
   const [recomendaria, setRecomendaria] = useState<boolean | null>(null)
   const [enviado, setEnviado] = useState(false)
-  const [cargando, setCargando] = useState(false)
+  const [cargandoEnvio, setCargandoEnvio] = useState(false)
 
   // Estados para el historial
   const [calificaciones, setCalificaciones] = useState<Calificacion[]>([])
@@ -66,9 +58,13 @@ export default function SistemaCalificacion({
   const [badges, setBadges] = useState<ConductorBadge[]>([])
   const [cargandoHistorial, setCargandoHistorial] = useState(false)
 
+  // Estado para la respuesta del conductor
+  const [respuestaConductor, setRespuestaConductor] = useState<{ [key: string]: string }>({})
+  const [enviandoRespuesta, setEnviandoRespuesta] = useState<{ [key: string]: boolean }>({})
+
   // Cargar datos del historial si es necesario
   useEffect(() => {
-    if (mostrarHistorial) {
+    if (mostrarHistorial && conductorId) {
       cargarHistorial()
     }
   }, [mostrarHistorial, conductorId])
@@ -87,6 +83,11 @@ export default function SistemaCalificacion({
       setBadges(badgesData)
     } catch (error) {
       console.error("Error cargando historial:", error)
+      toast({
+        title: "Error",
+        description: "No se pudo cargar el historial de calificaciones.",
+        variant: "destructive",
+      })
     } finally {
       setCargandoHistorial(false)
     }
@@ -101,9 +102,24 @@ export default function SistemaCalificacion({
   }
 
   const handleEnviarCalificacion = async () => {
-    if (rating === 0) return
+    if (rating === 0) {
+      toast({
+        title: "Calificación requerida",
+        description: "Por favor, selecciona una calificación general.",
+        variant: "destructive",
+      })
+      return
+    }
+    if (!usuarioId || !viajeId || !conductorId) {
+      toast({
+        title: "Error de datos",
+        description: "Faltan datos esenciales para enviar la calificación.",
+        variant: "destructive",
+      })
+      return
+    }
 
-    setCargando(true)
+    setCargandoEnvio(true)
     try {
       const calificacionData = {
         viaje_id: viajeId,
@@ -123,31 +139,72 @@ export default function SistemaCalificacion({
       if (resultado) {
         setEnviado(true)
         onCalificar?.(resultado)
+        toast({
+          title: "¡Gracias por tu calificación!",
+          description: "Tu opinión ha sido registrada exitosamente.",
+        })
       } else {
-        alert("Error al enviar la calificación. Inténtalo de nuevo.")
+        toast({
+          title: "Error al enviar",
+          description: "No se pudo enviar la calificación. Inténtalo de nuevo.",
+          variant: "destructive",
+        })
       }
     } catch (error) {
       console.error("Error enviando calificación:", error)
-      alert("Error al enviar la calificación. Inténtalo de nuevo.")
+      toast({
+        title: "Error inesperado",
+        description: "Ocurrió un error al enviar la calificación.",
+        variant: "destructive",
+      })
     } finally {
-      setCargando(false)
+      setCargandoEnvio(false)
     }
   }
 
-  const handleResponderCalificacion = async (calificacionId: string, respuesta: string) => {
+  const handleResponderCalificacion = async (calificacionId: string) => {
+    if (!currentUser || currentUser.tipo_usuario !== "conductor") {
+      toast({
+        title: "Acceso denegado",
+        description: "Solo los conductores pueden responder calificaciones.",
+        variant: "destructive",
+      })
+      return
+    }
+    const respuesta = respuestaConductor[calificacionId]?.trim()
+    if (!respuesta) {
+      toast({ title: "Mensaje vacío", description: "La respuesta no puede estar vacía.", variant: "destructive" })
+      return
+    }
+
+    setEnviandoRespuesta((prev) => ({ ...prev, [calificacionId]: true }))
     try {
-      const resultado = await crearRespuestaCalificacion(calificacionId, conductorId, respuesta)
+      const resultado = await crearRespuestaCalificacion(calificacionId, currentUser.id, respuesta)
       if (resultado) {
-        // Recargar calificaciones para mostrar la nueva respuesta
-        cargarHistorial()
+        toast({ title: "Respuesta enviada", description: "Tu respuesta ha sido publicada." })
+        setRespuestaConductor((prev) => {
+          const newState = { ...prev }
+          delete newState[calificacionId]
+          return newState
+        })
+        cargarHistorial() // Recargar calificaciones para mostrar la nueva respuesta
+      } else {
+        toast({ title: "Error", description: "No se pudo enviar la respuesta.", variant: "destructive" })
       }
     } catch (error) {
       console.error("Error enviando respuesta:", error)
+      toast({
+        title: "Error inesperado",
+        description: "Ocurrió un error al enviar la respuesta.",
+        variant: "destructive",
+      })
+    } finally {
+      setEnviandoRespuesta((prev) => ({ ...prev, [calificacionId]: false }))
     }
   }
 
   const renderStars = (
-    currentRating: number,
+    currentRating: number | undefined,
     onStarClick?: (value: number) => void,
     onStarHover?: (value: number) => void,
     size: "sm" | "md" | "lg" = "md",
@@ -163,8 +220,8 @@ export default function SistemaCalificacion({
         {[1, 2, 3, 4, 5].map((star) => (
           <Star
             key={star}
-            className={`${sizeClasses[size]} cursor-pointer transition-colors ${
-              star <= (hoverRating || currentRating) ? "fill-yellow-400 text-yellow-400" : "text-gray-300"
+            className={`${sizeClasses[size]} ${onStarClick ? "cursor-pointer" : ""} transition-colors ${
+              star <= (hoverRating || currentRating || 0) ? "fill-yellow-400 text-yellow-400" : "text-gray-300"
             }`}
             onClick={() => onStarClick?.(star)}
             onMouseEnter={() => onStarHover?.(star)}
@@ -175,11 +232,23 @@ export default function SistemaCalificacion({
     )
   }
 
-  const getBadgeColor = (rating: number) => {
+  const getBadgeColor = (rating: number | undefined) => {
+    if (!rating) return "bg-gray-500"
     if (rating >= 4.8) return "bg-green-500"
     if (rating >= 4.5) return "bg-blue-500"
     if (rating >= 4.0) return "bg-yellow-500"
     return "bg-gray-500"
+  }
+
+  if (authLoading) {
+    return (
+      <Card>
+        <CardContent className="p-8 text-center">
+          <Loader2 className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+          <p className="text-gray-600">Cargando autenticación...</p>
+        </CardContent>
+      </Card>
+    )
   }
 
   if (enviado) {
@@ -205,7 +274,7 @@ export default function SistemaCalificacion({
         <div className="space-y-4">
           <Card>
             <CardContent className="p-8 text-center">
-              <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+              <Loader2 className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
               <p className="text-gray-600">Cargando información del conductor...</p>
             </CardContent>
           </Card>
@@ -224,12 +293,12 @@ export default function SistemaCalificacion({
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-6">
-            {estadisticas && (
+            {estadisticas && estadisticas.total_calificaciones > 0 ? (
               <>
                 {/* Promedio General */}
                 <div className="text-center">
                   <div className="flex items-center justify-center gap-2 mb-2">
-                    <span className="text-4xl font-bold">{estadisticas.rating_promedio}</span>
+                    <span className="text-4xl font-bold">{estadisticas.rating_promedio?.toFixed(1)}</span>
                     {renderStars(estadisticas.rating_promedio, undefined, undefined, "lg")}
                   </div>
                   <p className="text-gray-600">Basado en {estadisticas.total_calificaciones} calificaciones</p>
@@ -251,16 +320,14 @@ export default function SistemaCalificacion({
                         <div
                           className="bg-yellow-400 h-2 rounded-full"
                           style={{
-                            width: `${(estadisticas.distribucion_ratings[stars.toString() as keyof typeof estadisticas.distribucion_ratings] / estadisticas.total_calificaciones) * 100}%`,
+                            width: `${(estadisticas.distribucion_ratings[stars.toString() as keyof typeof estadisticas.distribucion_ratings] / estadisticas.total_calificaciones) * 100 || 0}%`,
                           }}
                         />
                       </div>
                       <span className="text-sm text-gray-600 w-8">
-                        {
-                          estadisticas.distribucion_ratings[
-                            stars.toString() as keyof typeof estadisticas.distribucion_ratings
-                          ]
-                        }
+                        {estadisticas.distribucion_ratings[
+                          stars.toString() as keyof typeof estadisticas.distribucion_ratings
+                        ] || 0}
                       </span>
                     </div>
                   ))}
@@ -269,24 +336,22 @@ export default function SistemaCalificacion({
                 {/* Aspectos Específicos */}
                 <div className="grid grid-cols-2 gap-4">
                   {[
-                    { key: "rating_puntualidad", label: "Puntualidad" },
-                    { key: "rating_vehiculo", label: "Vehículo" },
-                    { key: "rating_conduccion", label: "Conducción" },
-                    { key: "rating_amabilidad", label: "Amabilidad" },
-                  ].map(({ key, label }) => (
-                    <div key={key} className="text-center p-3 bg-gray-50 rounded-lg">
-                      <p className="text-sm text-gray-600">{label}</p>
-                      <div className="flex items-center justify-center gap-1 mt-1">
-                        <span className="font-bold">{estadisticas[key as keyof EstadisticasConductor] as number}</span>
-                        {renderStars(
-                          estadisticas[key as keyof EstadisticasConductor] as number,
-                          undefined,
-                          undefined,
-                          "sm",
-                        )}
+                    { key: "rating_puntualidad", label: "Puntualidad", icon: Clock },
+                    { key: "rating_vehiculo", label: "Vehículo", icon: Shield },
+                    { key: "rating_conduccion", label: "Conducción", icon: Award },
+                    { key: "rating_amabilidad", label: "Amabilidad", icon: ThumbsUp },
+                  ].map(({ key, label, icon: Icon }) => {
+                    const value = estadisticas[key as keyof EstadisticasConductor] as number
+                    return (
+                      <div key={key} className="text-center p-3 bg-gray-50 rounded-lg">
+                        <p className="text-sm text-gray-600">{label}</p>
+                        <div className="flex items-center justify-center gap-1 mt-1">
+                          <Icon className="w-4 h-4 text-gray-500" />
+                          <span className="font-bold">{value?.toFixed(1) || "N/A"}</span>
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
 
                 {/* Recomendaciones */}
@@ -298,6 +363,10 @@ export default function SistemaCalificacion({
                   <p className="text-blue-700">de los pasajeros recomiendan a este conductor</p>
                 </div>
               </>
+            ) : (
+              <div className="text-center py-8 text-gray-500">
+                <p>No hay suficientes datos para mostrar estadísticas detalladas.</p>
+              </div>
             )}
           </CardContent>
         </Card>
@@ -333,71 +402,33 @@ export default function SistemaCalificacion({
             <CardTitle>Comentarios Recientes</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            {calificaciones.map((calificacion) => (
-              <div key={calificacion.id} className="border rounded-lg p-4">
-                <div className="flex items-start justify-between mb-3">
-                  <div className="flex items-center gap-3">
-                    <Avatar className="w-10 h-10">
-                      <AvatarImage src={calificacion.pasajero?.avatar_url || "/placeholder.svg"} />
-                      <AvatarFallback>
-                        {calificacion.pasajero?.nombre
-                          .split(" ")
-                          .map((n) => n[0])
-                          .join("")}
-                      </AvatarFallback>
-                    </Avatar>
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <p className="font-semibold">{calificacion.pasajero?.nombre}</p>
-                        {calificacion.verificado && <Shield className="w-4 h-4 text-green-500" />}
+            {calificaciones.length > 0 ? (
+              calificaciones.map((calificacion) => (
+                <div key={calificacion.id} className="flex items-center gap-4">
+                  <Avatar>
+                    <AvatarImage
+                      src={calificacion.pasajero?.foto || ""}
+                      alt={calificacion.pasajero?.nombre || "Pasajero"}
+                    />
+                    <AvatarFallback>{calificacion.pasajero?.nombre?.charAt(0) || "P"}</AvatarFallback>
+                  </Avatar>
+                  <div className="flex-1">
+                    <p className="font-semibold">{calificacion.pasajero?.nombre}</p>
+                    <p className="text-sm text-gray-600">{calificacion.comentario}</p>
+                    {calificacion.respuesta && (
+                      <div className="mt-2">
+                        <p className="font-semibold">Respuesta del conductor:</p>
+                        <p className="text-sm text-gray-600">{calificacion.respuesta}</p>
                       </div>
-                      <div className="flex items-center gap-2">
-                        {renderStars(calificacion.rating_general, undefined, undefined, "sm")}
-                        <span className="text-sm text-gray-500">
-                          {new Date(calificacion.created_at).toLocaleDateString()}
-                        </span>
-                      </div>
-                    </div>
+                    )}
                   </div>
                 </div>
-
-                {calificacion.comentario && <p className="text-gray-700 mb-3">{calificacion.comentario}</p>}
-
-                {/* Aspectos Específicos */}
-                {(calificacion.rating_puntualidad ||
-                  calificacion.rating_vehiculo ||
-                  calificacion.rating_conduccion ||
-                  calificacion.rating_amabilidad) && (
-                  <div className="grid grid-cols-4 gap-2 mb-3">
-                    {[
-                      { key: "rating_puntualidad", label: "Puntualidad" },
-                      { key: "rating_vehiculo", label: "Vehículo" },
-                      { key: "rating_conduccion", label: "Conducción" },
-                      { key: "rating_amabilidad", label: "Amabilidad" },
-                    ].map(({ key, label }) => {
-                      const valor = calificacion[key as keyof Calificacion] as number
-                      return valor ? (
-                        <div key={key} className="text-center">
-                          <p className="text-xs text-gray-500">{label}</p>
-                          <div className="flex justify-center">{renderStars(valor, undefined, undefined, "sm")}</div>
-                        </div>
-                      ) : null
-                    })}
-                  </div>
-                )}
-
-                {/* Respuesta del Conductor */}
-                {calificacion.respuesta && (
-                  <div className="bg-blue-50 p-3 rounded-lg mt-3">
-                    <div className="flex items-center gap-2 mb-2">
-                      <MessageCircle className="w-4 h-4 text-blue-600" />
-                      <span className="text-sm font-semibold text-blue-800">Respuesta del conductor:</span>
-                    </div>
-                    <p className="text-sm text-blue-700">{calificacion.respuesta}</p>
-                  </div>
-                )}
+              ))
+            ) : (
+              <div className="text-center py-8 text-gray-500">
+                <p>No hay comentarios recientes para mostrar.</p>
               </div>
-            ))}
+            )}
           </CardContent>
         </Card>
       </div>
@@ -405,105 +436,72 @@ export default function SistemaCalificacion({
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Star className="w-5 h-5" />
-          Calificar tu Viaje
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-6">
-        {/* Información del Conductor */}
-        <div className="flex items-center gap-4 p-4 bg-gray-50 rounded-lg">
-          <Avatar className="w-16 h-16">
-            <AvatarImage src={conductorFoto || "/placeholder.svg"} />
-            <AvatarFallback>
-              {conductorNombre
-                .split(" ")
-                .map((n) => n[0])
-                .join("")}
-            </AvatarFallback>
-          </Avatar>
-          <div>
-            <h3 className="text-lg font-semibold">{conductorNombre}</h3>
-            <p className="text-gray-600">¿Cómo fue tu experiencia?</p>
-          </div>
-        </div>
-
-        {/* Calificación General */}
+    <div className="space-y-4">
+      {/* Calificación General */}
+      <div className="flex items-center gap-4">
         <div className="text-center">
-          <p className="font-semibold mb-3">Calificación General</p>
-          {renderStars(rating, handleRatingClick, setHoverRating, "lg")}
-          <p className="text-sm text-gray-600 mt-2">
-            {rating === 0 && "Selecciona una calificación"}
-            {rating === 1 && "Muy malo"}
-            {rating === 2 && "Malo"}
-            {rating === 3 && "Regular"}
-            {rating === 4 && "Bueno"}
-            {rating === 5 && "Excelente"}
-          </p>
+          <h4 className="font-semibold">Calificación General</h4>
+          {renderStars(rating, handleRatingClick, setHoverRating)}
         </div>
+      </div>
 
-        {/* Aspectos Específicos */}
-        <div className="space-y-4">
-          <h4 className="font-semibold">Califica aspectos específicos:</h4>
-          {[
-            { key: "puntualidad", label: "Puntualidad", icon: Clock },
-            { key: "vehiculo", label: "Estado del Vehículo", icon: Shield },
-            { key: "conduccion", label: "Conducción", icon: Award },
-            { key: "amabilidad", label: "Amabilidad", icon: ThumbsUp },
-          ].map(({ key, label, icon: Icon }) => (
-            <div key={key} className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Icon className="w-4 h-4 text-gray-500" />
-                <span className="text-sm">{label}</span>
-              </div>
-              {renderStars(aspectos[key as keyof typeof aspectos], (value) =>
-                handleAspectoChange(key as keyof typeof aspectos, value),
-              )}
+      {/* Aspectos Específicos */}
+      <div className="grid grid-cols-2 gap-4">
+        {[
+          { key: "puntualidad", label: "Puntualidad", icon: Clock },
+          { key: "vehiculo", label: "Vehículo", icon: Shield },
+          { key: "conduccion", label: "Conducción", icon: Award },
+          { key: "amabilidad", label: "Amabilidad", icon: ThumbsUp },
+        ].map(({ key, label, icon: Icon }) => (
+          <div key={key} className="flex items-center gap-4">
+            <Icon className="w-6 h-6 text-gray-500" />
+            <div className="flex-1">
+              <h4 className="font-semibold">{label}</h4>
+              {renderStars(aspectos[key as keyof typeof aspectos], undefined, undefined, "sm")}
             </div>
-          ))}
-        </div>
-
-        {/* Recomendación */}
-        <div className="space-y-3">
-          <p className="font-semibold">¿Recomendarías este conductor?</p>
-          <div className="flex gap-3">
-            <Button
-              variant={recomendaria === true ? "default" : "outline"}
-              onClick={() => setRecomendaria(true)}
-              className="flex-1"
-            >
-              <ThumbsUp className="w-4 h-4 mr-2" />
-              Sí
-            </Button>
-            <Button
-              variant={recomendaria === false ? "default" : "outline"}
-              onClick={() => setRecomendaria(false)}
-              className="flex-1"
-            >
-              <ThumbsDown className="w-4 h-4 mr-2" />
-              No
-            </Button>
           </div>
-        </div>
+        ))}
+      </div>
 
-        {/* Comentario */}
-        <div className="space-y-2">
-          <label className="font-semibold">Comentario (opcional)</label>
-          <Textarea
-            placeholder="Comparte tu experiencia con otros pasajeros..."
-            value={comentario}
-            onChange={(e) => setComentario(e.target.value)}
-            className="min-h-[100px]"
-          />
-        </div>
+      {/* Comentario */}
+      <div className="space-y-2">
+        <h4 className="font-semibold">Comentario</h4>
+        <Textarea
+          value={comentario}
+          onChange={(e) => setComentario(e.target.value)}
+          placeholder="Escribe tu comentario aquí..."
+          className="resize-none"
+        />
+      </div>
 
-        {/* Botón Enviar */}
-        <Button onClick={handleEnviarCalificacion} disabled={rating === 0 || cargando} className="w-full" size="lg">
-          {cargando ? "Enviando..." : "Enviar Calificación"}
-        </Button>
-      </CardContent>
-    </Card>
+      {/* Recomendaría */}
+      <div className="flex items-center gap-4">
+        <div className="flex items-center gap-2">
+          <ThumbsUp className="w-6 h-6 text-gray-500" />
+          <span className="font-semibold">Recomendaría</span>
+        </div>
+        <div className="flex gap-2">
+          <Button
+            onClick={() => setRecomendaria(true)}
+            variant={recomendaria === true ? "default" : "outline"}
+            className="bg-transparent"
+          >
+            Sí
+          </Button>
+          <Button
+            onClick={() => setRecomendaria(false)}
+            variant={recomendaria === false ? "default" : "outline"}
+            className="bg-transparent"
+          >
+            No
+          </Button>
+        </div>
+      </div>
+
+      {/* Botón de Envío */}
+      <Button onClick={handleEnviarCalificacion} disabled={cargandoEnvio} className="w-full">
+        {cargandoEnvio ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : "Enviar Calificación"}
+      </Button>
+    </div>
   )
 }

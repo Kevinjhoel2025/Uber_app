@@ -1,125 +1,110 @@
 "use client"
 
-import { useState } from "react"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
-import { ArrowLeft, MapPin, Clock, Car } from "lucide-react"
+import { useEffect, useState } from "react"
+import { useParams, useRouter } from "next/navigation"
 import SistemaCalificacion from "@/components/sistema-calificacion"
+import { obtenerViajesUsuario } from "@/lib/database"
+import { useAuth } from "@/hooks/use-auth"
+import { Card, CardContent } from "@/components/ui/card"
+import { Loader2, XCircle } from "lucide-react"
+import { Button } from "@/components/ui/button"
+import type { Viaje } from "@/lib/supabase"
 
-export default function CalificarViaje() {
-  const [calificacionEnviada, setCalificacionEnviada] = useState(false)
+export default function CalificarViajePage() {
+  const params = useParams()
+  const router = useRouter()
+  const viajeId = params.id as string
+  const { usuario, loading: authLoading } = useAuth()
 
-  // Datos del viaje a calificar
-  const datosViaje = {
-    id: "1",
-    conductor: {
-      id: "conductor-1",
-      nombre: "Carlos Mendoza",
-      foto: "/placeholder-user.jpg",
-      vehiculo: "Toyota Hiace - ABC123",
-      rating: 4.8,
-    },
-    ruta: "Warnes → Montero",
-    fecha: "2024-01-15",
-    hora: "15:00",
-    precio: 15,
-    duracion: "25 min",
-    distancia: "18 km",
+  const [viaje, setViaje] = useState<Viaje | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    const fetchViaje = async () => {
+      if (!usuario || !viajeId) {
+        setError("Usuario no autenticado o ID de viaje no proporcionado.")
+        setLoading(false)
+        return
+      }
+
+      try {
+        const viajesDelUsuario = await obtenerViajesUsuario(usuario.id)
+        const viajeEncontrado = viajesDelUsuario.find((v) => v.id === viajeId)
+
+        if (viajeEncontrado && viajeEncontrado.estado === "completado") {
+          setViaje(viajeEncontrado)
+        } else if (viajeEncontrado && viajeEncontrado.estado !== "completado") {
+          setError("Este viaje aún no ha sido completado y no puede ser calificado.")
+        } else {
+          setError("Viaje no encontrado o no autorizado para calificar.")
+        }
+      } catch (err) {
+        console.error("Error al cargar el viaje para calificar:", err)
+        setError("Error al cargar los detalles del viaje.")
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    if (!authLoading) {
+      fetchViaje()
+    }
+  }, [viajeId, usuario, authLoading])
+
+  if (authLoading || loading) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen bg-gray-50">
+        <Loader2 className="w-12 h-12 animate-spin text-blue-600 mb-4" />
+        <p className="text-lg text-gray-700">Cargando viaje para calificar...</p>
+      </div>
+    )
   }
 
-  const handleCalificacion = (calificacionData: any) => {
-    console.log("Calificación enviada:", calificacionData)
-    setCalificacionEnviada(true)
-    // Aquí se enviaría la calificación al backend
+  if (error) {
+    return (
+      <div className="min-h-screen bg-gray-50 p-4 flex flex-col items-center justify-center">
+        <Card className="w-full max-w-md text-center">
+          <CardContent className="p-6">
+            <XCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
+            <h2 className="text-xl font-bold text-red-800 mb-2">Error al Calificar</h2>
+            <p className="text-red-700 mb-4">{error}</p>
+            <Button onClick={() => router.back()}>Volver</Button>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
+
+  if (!viaje || !usuario || !viaje.conductor_id) {
+    return (
+      <div className="min-h-screen bg-gray-50 p-4 flex flex-col items-center justify-center">
+        <Card className="w-full max-w-md text-center">
+          <CardContent className="p-6">
+            <XCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
+            <h2 className="text-xl font-bold text-red-800 mb-2">Información Incompleta</h2>
+            <p className="text-red-700 mb-4">No se pudo obtener la información necesaria para calificar el viaje.</p>
+            <Button onClick={() => router.back()}>Volver</Button>
+          </CardContent>
+        </Card>
+      </div>
+    )
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <div className="bg-blue-600 text-white p-4">
-        <div className="flex items-center gap-3">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="text-white hover:bg-blue-700"
-            onClick={() => window.history.back()}
-          >
-            <ArrowLeft className="w-5 h-5" />
-          </Button>
-          <div>
-            <h1 className="text-lg font-semibold">Calificar Viaje</h1>
-            <p className="text-blue-100 text-sm">Comparte tu experiencia</p>
-          </div>
-        </div>
-      </div>
-
-      <div className="p-4 space-y-4">
-        {/* Resumen del Viaje */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Resumen del Viaje</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <MapPin className="w-4 h-4 text-gray-500" />
-                <span className="font-medium">{datosViaje.ruta}</span>
-              </div>
-              <Badge variant="default">Completado</Badge>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4 text-sm">
-              <div className="flex items-center gap-2">
-                <Clock className="w-4 h-4 text-gray-500" />
-                <span>
-                  {datosViaje.fecha} - {datosViaje.hora}
-                </span>
-              </div>
-              <div className="flex items-center gap-2">
-                <Car className="w-4 h-4 text-gray-500" />
-                <span>{datosViaje.conductor.vehiculo}</span>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-3 gap-4 text-center text-sm">
-              <div>
-                <p className="text-gray-600">Precio</p>
-                <p className="font-semibold">Bs. {datosViaje.precio}</p>
-              </div>
-              <div>
-                <p className="text-gray-600">Duración</p>
-                <p className="font-semibold">{datosViaje.duracion}</p>
-              </div>
-              <div>
-                <p className="text-gray-600">Distancia</p>
-                <p className="font-semibold">{datosViaje.distancia}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Sistema de Calificación */}
+    <div className="min-h-screen bg-gray-50 p-4">
+      <div className="max-w-md mx-auto">
         <SistemaCalificacion
-          conductorId={datosViaje.conductor.id}
-          conductorNombre={datosViaje.conductor.nombre}
-          conductorFoto={datosViaje.conductor.foto}
-          viajeId={datosViaje.id}
-          onCalificar={handleCalificacion}
+          conductorId={viaje.conductor_id}
+          conductorNombre={viaje.conductor?.usuario?.nombre || "Conductor Desconocido"}
+          conductorFoto={viaje.conductor?.usuario?.avatar_url || "/placeholder-user.jpg"}
+          viajeId={viaje.id}
+          usuarioId={usuario.id}
+          onCalificar={() => {
+            router.push("/usuario-dashboard") // Redirigir al dashboard después de calificar
+          }}
+          mostrarHistorial={false}
         />
-
-        {/* Información Adicional */}
-        <Card className="border-blue-200 bg-blue-50">
-          <CardContent className="p-4">
-            <h4 className="font-semibold text-blue-800 mb-2">Tu opinión es importante</h4>
-            <ul className="text-sm text-blue-700 space-y-1">
-              <li>• Las calificaciones ayudan a otros pasajeros a elegir</li>
-              <li>• Los conductores pueden mejorar con tu feedback</li>
-              <li>• Tu identidad se mantiene privada</li>
-              <li>• Solo calificaciones verificadas son publicadas</li>
-            </ul>
-          </CardContent>
-        </Card>
       </div>
     </div>
   )

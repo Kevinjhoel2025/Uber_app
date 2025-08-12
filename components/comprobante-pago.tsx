@@ -1,354 +1,374 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { CheckCircle, Download, Share2, Copy, QrCode, Receipt, Calendar, User, CreditCard } from "lucide-react"
-import { obtenerComprobante, verificarComprobante } from "@/lib/database"
-import type { Comprobante } from "@/lib/database"
+import { Download, Share2, CheckCircle, Clock, QrCode, Receipt, Calendar, MapPin, User, CreditCard, XCircle } from 'lucide-react'
+import { toast } from "@/hooks/use-toast"
+import type { Comprobante } from "@/lib/supabase" // Importar el tipo Comprobante de Supabase
 
 interface ComprobantePagoProps {
-  pagoId: string
-  datosViaje: {
-    conductor: string
-    vehiculo: string
-    ruta: string
-    fecha: string
-    hora: string
-    precio: number
+  comprobante: {
+    numero_comprobante: string
+    fecha: string // Fecha del pago
     pasajero: string
-    metodo: string
+    conductor: string
+    origen: string
+    destino: string
+    monto: number
+    metodo_pago: string
+    estado: "pendiente" | "completado" | "fallido" | "reembolsado" // Usar los estados de Pago
+    qr_data?: string // Puede ser un JSON string con datos del QR o una URL de imagen
   }
-  onVerificar?: (comprobante: Comprobante) => void
-  mostrarVerificacion?: boolean
-  usuarioId?: string
+  onVerificar?: () => void
+  onCompartir?: () => void
 }
 
-export default function ComprobantePago({
-  pagoId,
-  datosViaje,
-  onVerificar,
-  mostrarVerificacion = false,
-  usuarioId,
-}: ComprobantePagoProps) {
-  const [comprobante, setComprobante] = useState<Comprobante | null>(null)
-  const [cargando, setCargando] = useState(true)
-  const [verificando, setVerificando] = useState(false)
-  const [codigoVerificacion, setCodigoVerificacion] = useState("")
-  const [copiado, setCopiado] = useState(false)
+export default function ComprobantePago({ comprobante, onVerificar, onCompartir }: ComprobantePagoProps) {
+  const [descargando, setDescargando] = useState(false)
+  const comprobanteRef = useRef<HTMLDivElement>(null)
 
-  useEffect(() => {
-    cargarComprobante()
-  }, [pagoId])
-
-  const cargarComprobante = async () => {
-    setCargando(true)
+  const descargarComprobante = async () => {
+    setDescargando(true)
     try {
-      const data = await obtenerComprobante(pagoId)
-      setComprobante(data)
-    } catch (error) {
-      console.error("Error cargando comprobante:", error)
-    } finally {
-      setCargando(false)
-    }
-  }
+      // Simular descarga del comprobante como imagen
+      const canvas = document.createElement("canvas")
+      const ctx = canvas.getContext("2d")
 
-  const handleVerificar = async () => {
-    if (!comprobante || !usuarioId) return
+      if (ctx && comprobanteRef.current) {
+        // Usar un tamaño más grande para mejor calidad
+        canvas.width = 600
+        canvas.height = 800
 
-    setVerificando(true)
-    try {
-      const exito = await verificarComprobante(comprobante.id, usuarioId)
-      if (exito) {
-        setComprobante({ ...comprobante, verificado: true, fecha_verificacion: new Date().toISOString() })
-        onVerificar?.(comprobante)
-      } else {
-        alert("Error al verificar el comprobante")
+        // Fondo blanco
+        ctx.fillStyle = "#ffffff"
+        ctx.fillRect(0, 0, canvas.width, canvas.height)
+
+        // Header verde
+        ctx.fillStyle = "#16a34a" // Tailwind green-600
+        ctx.fillRect(0, 0, canvas.width, 100)
+
+        // Título
+        ctx.fillStyle = "#ffffff"
+        ctx.font = "bold 30px Arial"
+        ctx.textAlign = "center"
+        ctx.fillText("COMPROBANTE DE PAGO", canvas.width / 2, 45)
+        ctx.font = "20px Arial"
+        ctx.fillText("Sindicato 27 de Noviembre", canvas.width / 2, 75)
+
+        // Contenido
+        ctx.fillStyle = "#000000"
+        ctx.font = "18px Arial"
+        ctx.textAlign = "left"
+
+        let y = 150
+        const lineHeight = 35
+        const paddingLeft = 40
+
+        const datos = [
+          `Número: ${comprobante.numero_comprobante}`,
+          `Fecha: ${new Date(comprobante.fecha).toLocaleString()}`,
+          `Pasajero: ${comprobante.pasajero}`,
+          `Conductor: ${comprobante.conductor}`,
+          `Ruta: ${comprobante.origen} → ${comprobante.destino}`,
+          `Monto: Bs. ${comprobante.monto.toFixed(2)}`, // Formatear a 2 decimales
+          `Método: ${comprobante.metodo_pago}`,
+          `Estado: ${comprobante.estado.toUpperCase()}`,
+        ]
+
+        datos.forEach((dato) => {
+          ctx.fillText(dato, paddingLeft, y)
+          y += lineHeight
+        })
+
+        // QR Code placeholder or image
+        if (comprobante.qr_data) {
+          try {
+            const qrInfo = JSON.parse(comprobante.qr_data);
+            if (qrInfo.qrImageUrl) {
+              // If it's a QR image URL, load and draw it
+              const img = new Image();
+              img.crossOrigin = "anonymous"; // Important for CORS
+              img.src = qrInfo.qrImageUrl;
+              await new Promise((resolve, reject) => {
+                img.onload = resolve;
+                img.onerror = reject;
+              });
+
+              const qrSize = 150;
+              const qrX = (canvas.width - qrSize) / 2;
+              const qrY = y + 30;
+              ctx.drawImage(img, qrX, qrY, qrSize, qrSize);
+              y = qrY + qrSize + 50; // Adjust 'y' after the QR
+            } else {
+              // If it's just QR data string, draw placeholder
+              const qrSize = 150
+              const qrX = (canvas.width - qrSize) / 2
+              const qrY = y + 30
+              ctx.strokeStyle = "#000000"
+              ctx.strokeRect(qrX, qrY, qrSize, qrSize)
+              ctx.font = "20px Arial"
+              ctx.textAlign = "center"
+              ctx.fillText("QR CODE", canvas.width / 2, qrY + qrSize / 2 + 10)
+              y = qrY + qrSize + 50 // Adjust 'y' after the QR
+            }
+          } catch (e) {
+            console.warn("Could not parse qr_data as JSON or qrImageUrl not found:", e);
+            // Fallback to generic QR placeholder if parsing fails
+            const qrSize = 150
+            const qrX = (canvas.width - qrSize) / 2
+            const qrY = y + 30
+            ctx.strokeStyle = "#000000"
+            ctx.strokeRect(qrX, qrY, qrSize, qrSize)
+            ctx.font = "20px Arial"
+            ctx.textAlign = "center"
+            ctx.fillText("QR CODE", canvas.width / 2, qrY + qrSize / 2 + 10)
+            y = qrY + qrSize + 50 // Adjust 'y' after the QR
+          }
+        } else {
+          y += 50; // Espacio si no hay QR
+        }
+
+        // Footer
+        ctx.font = "14px Arial"
+        ctx.textAlign = "center"
+        ctx.fillStyle = "#555555"
+        ctx.fillText("Este comprobante es válido como prueba de pago", canvas.width / 2, y)
+        ctx.fillText("Sindicato de Transporte 27 de Noviembre - Warnes", canvas.width / 2, y + 20)
+        ctx.fillText("¡Gracias por viajar con nosotros!", canvas.width / 2, y + 40)
+
+
+        // Descargar
+        const link = document.createElement("a")
+        link.download = `comprobante-${comprobante.numero_comprobante}.png`
+        link.href = canvas.toDataURL("image/png") // Especificar formato PNG
+        link.click()
+
+        toast({
+          title: "Comprobante descargado",
+          description: "El comprobante se ha guardado en tu dispositivo",
+        })
       }
     } catch (error) {
-      console.error("Error verificando comprobante:", error)
-      alert("Error al verificar el comprobante")
+      console.error("Error al descargar comprobante:", error);
+      toast({
+        title: "Error al descargar",
+        description: "No se pudo descargar el comprobante",
+        variant: "destructive",
+      })
     } finally {
-      setVerificando(false)
+      setDescargando(false)
     }
-  }
-
-  const copiarNumeroComprobante = () => {
-    if (comprobante) {
-      navigator.clipboard.writeText(comprobante.numero_comprobante)
-      setCopiado(true)
-      setTimeout(() => setCopiado(false), 2000)
-    }
-  }
-
-  const descargarComprobante = () => {
-    // Crear un elemento canvas para generar el comprobante como imagen
-    const canvas = document.createElement("canvas")
-    const ctx = canvas.getContext("2d")
-    if (!ctx || !comprobante) return
-
-    canvas.width = 400
-    canvas.height = 600
-
-    // Fondo blanco
-    ctx.fillStyle = "#ffffff"
-    ctx.fillRect(0, 0, canvas.width, canvas.height)
-
-    // Título
-    ctx.fillStyle = "#1f2937"
-    ctx.font = "bold 24px Arial"
-    ctx.textAlign = "center"
-    ctx.fillText("COMPROBANTE DE PAGO", canvas.width / 2, 40)
-
-    // Información del comprobante
-    ctx.font = "16px Arial"
-    ctx.textAlign = "left"
-    let y = 80
-
-    const info = [
-      `Número: ${comprobante.numero_comprobante}`,
-      `Fecha: ${new Date(comprobante.created_at).toLocaleDateString()}`,
-      `Pasajero: ${datosViaje.pasajero}`,
-      `Conductor: ${datosViaje.conductor}`,
-      `Vehículo: ${datosViaje.vehiculo}`,
-      `Ruta: ${datosViaje.ruta}`,
-      `Fecha del viaje: ${datosViaje.fecha}`,
-      `Hora: ${datosViaje.hora}`,
-      `Método de pago: ${datosViaje.metodo}`,
-      `Monto: Bs. ${datosViaje.precio}`,
-      `Estado: ${comprobante.verificado ? "VERIFICADO" : "PENDIENTE"}`,
-    ]
-
-    info.forEach((line) => {
-      ctx.fillText(line, 20, y)
-      y += 30
-    })
-
-    // Estado de verificación
-    if (comprobante.verificado) {
-      ctx.fillStyle = "#10b981"
-      ctx.font = "bold 18px Arial"
-      ctx.textAlign = "center"
-      ctx.fillText("✓ COMPROBANTE VERIFICADO", canvas.width / 2, y + 40)
-    }
-
-    // Descargar
-    const link = document.createElement("a")
-    link.download = `comprobante-${comprobante.numero_comprobante}.png`
-    link.href = canvas.toDataURL()
-    link.click()
   }
 
   const compartirComprobante = async () => {
-    if (!comprobante) return
+    try {
+      const texto = `
+🧾 COMPROBANTE DE PAGO
+Sindicato 27 de Noviembre - Warnes
 
-    const texto = `Comprobante de Pago
-Número: ${comprobante.numero_comprobante}
-Ruta: ${datosViaje.ruta}
-Monto: Bs. ${datosViaje.precio}
-Estado: ${comprobante.verificado ? "VERIFICADO" : "PENDIENTE"}`
+📋 Número: ${comprobante.numero_comprobante}
+📅 Fecha: ${new Date(comprobante.fecha).toLocaleString()}
+👤 Pasajero: ${comprobante.pasajero}
+🚐 Conductor: ${comprobante.conductor}
+🗺️ Ruta: ${comprobante.origen} → ${comprobante.destino}
+💰 Monto: Bs. ${comprobante.monto.toFixed(2)}
+💳 Método: ${comprobante.metodo_pago}
+✅ Estado: ${comprobante.estado.toUpperCase()}
 
-    if (navigator.share) {
-      try {
+¡Gracias por viajar con nosotros!
+      `.trim()
+
+      if (navigator.share) {
         await navigator.share({
-          title: "Comprobante de Pago - TransSindicato",
+          title: "Comprobante de Pago",
           text: texto,
         })
-      } catch (error) {
-        console.log("Error compartiendo:", error)
+      } else {
+        // Fallback para navegadores que no soportan Web Share API
+        await navigator.clipboard.writeText(texto)
+        toast({
+          title: "Copiado al portapapeles",
+          description: "El comprobante se ha copiado para compartir",
+        })
       }
-    } else {
-      navigator.clipboard.writeText(texto)
-      alert("Información del comprobante copiada al portapapeles")
+
+      onCompartir?.()
+    } catch (error) {
+      console.error("Error al compartir comprobante:", error);
+      toast({
+        title: "Error al compartir",
+        description: "No se pudo compartir el comprobante",
+        variant: "destructive",
+      })
     }
   }
 
-  if (cargando) {
-    return (
-      <Card>
-        <CardContent className="p-8 text-center">
-          <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-gray-600">Cargando comprobante...</p>
-        </CardContent>
-      </Card>
-    )
+  const getEstadoColor = (estado: string) => {
+    switch (estado) {
+      case "completado":
+        return "bg-green-500"
+      case "procesando": // Usar para "pendiente" o "procesando"
+      case "pendiente":
+        return "bg-yellow-500"
+      case "fallido": // Usar para "error" o "fallido"
+      case "error":
+        return "bg-red-500"
+      case "reembolsado":
+        return "bg-blue-500"
+      default:
+        return "bg-gray-500"
+    }
   }
 
-  if (!comprobante) {
-    return (
-      <Card className="border-red-200 bg-red-50">
-        <CardContent className="p-8 text-center">
-          <Receipt className="w-16 h-16 text-red-500 mx-auto mb-4" />
-          <h3 className="text-xl font-bold text-red-800 mb-2">Comprobante no encontrado</h3>
-          <p className="text-red-700">No se pudo cargar el comprobante de este pago.</p>
-        </CardContent>
-      </Card>
-    )
+  const getEstadoIcon = (estado: string) => {
+    switch (estado) {
+      case "completado":
+        return <CheckCircle className="w-4 h-4" />
+      case "procesando":
+      case "pendiente":
+        return <Clock className="w-4 h-4" />
+      case "fallido":
+      case "error":
+        return <XCircle className="w-4 h-4" />
+      default:
+        return <Receipt className="w-4 h-4" />
+    }
   }
 
   return (
-    <div className="space-y-4">
-      {/* Comprobante Principal */}
-      <Card className={`${comprobante.verificado ? "border-green-200 bg-green-50" : "border-orange-200 bg-orange-50"}`}>
-        <CardHeader className="text-center">
+    <div className="max-w-md mx-auto">
+      <Card ref={comprobanteRef} className="border-2 border-green-200">
+        <CardHeader className="bg-green-600 text-white text-center">
           <div className="flex items-center justify-center gap-2 mb-2">
-            <Receipt className="w-8 h-8 text-blue-600" />
-            <CardTitle className="text-xl">Comprobante de Pago</CardTitle>
+            <Receipt className="w-6 h-6" />
+            <CardTitle className="text-lg">COMPROBANTE DE PAGO</CardTitle>
           </div>
-          <div className="flex items-center justify-center gap-2">
-            <Badge variant={comprobante.verificado ? "default" : "secondary"} className="text-sm">
-              {comprobante.verificado ? (
-                <>
-                  <CheckCircle className="w-4 h-4 mr-1" />
-                  VERIFICADO
-                </>
-              ) : (
-                "PENDIENTE DE VERIFICACIÓN"
-              )}
+          <p className="text-green-100 text-sm">Sindicato 27 de Noviembre - Warnes</p>
+        </CardHeader>
+
+        <CardContent className="p-6 space-y-4">
+          {/* Número de Comprobante */}
+          <div className="text-center border-b pb-4">
+            <p className="text-sm text-gray-600">Número de Comprobante</p>
+            <p className="text-xl font-bold text-green-600">{comprobante.numero_comprobante}</p>
+          </div>
+
+          {/* Estado */}
+          <div className="flex justify-center">
+            <Badge className={`${getEstadoColor(comprobante.estado)} text-white`}>
+              {getEstadoIcon(comprobante.estado)}
+              <span className="ml-1">{comprobante.estado.toUpperCase()}</span>
             </Badge>
           </div>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {/* Número de Comprobante */}
-          <div className="text-center p-4 bg-white rounded-lg border">
-            <p className="text-sm text-gray-600 mb-1">Número de Comprobante</p>
-            <div className="flex items-center justify-center gap-2">
-              <p className="text-lg font-mono font-bold">{comprobante.numero_comprobante}</p>
-              <Button variant="ghost" size="sm" onClick={copiarNumeroComprobante}>
-                {copiado ? <CheckCircle className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4" />}
-              </Button>
-            </div>
-          </div>
 
-          {/* Información del Viaje */}
-          <div className="grid grid-cols-1 gap-3">
-            <div className="flex items-center gap-3 p-3 bg-white rounded-lg">
-              <User className="w-5 h-5 text-gray-500" />
-              <div>
-                <p className="text-sm text-gray-600">Pasajero</p>
-                <p className="font-medium">{datosViaje.pasajero}</p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-3 p-3 bg-white rounded-lg">
-              <User className="w-5 h-5 text-gray-500" />
-              <div>
-                <p className="text-sm text-gray-600">Conductor</p>
-                <p className="font-medium">{datosViaje.conductor}</p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-3 p-3 bg-white rounded-lg">
-              <QrCode className="w-5 h-5 text-gray-500" />
-              <div>
-                <p className="text-sm text-gray-600">Ruta</p>
-                <p className="font-medium">{datosViaje.ruta}</p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-3 p-3 bg-white rounded-lg">
-              <Calendar className="w-5 h-5 text-gray-500" />
+          {/* Detalles del Viaje */}
+          <div className="space-y-3">
+            <div className="flex items-center gap-3">
+              <Calendar className="w-4 h-4 text-gray-500" />
               <div>
                 <p className="text-sm text-gray-600">Fecha y Hora</p>
+                <p className="font-medium">{new Date(comprobante.fecha).toLocaleString()}</p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <User className="w-4 h-4 text-gray-500" />
+              <div>
+                <p className="text-sm text-gray-600">Pasajero</p>
+                <p className="font-medium">{comprobante.pasajero}</p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <User className="w-4 h-4 text-gray-500" />
+              <div>
+                <p className="text-sm text-gray-600">Conductor</p>
+                <p className="font-medium">{comprobante.conductor}</p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <MapPin className="w-4 h-4 text-gray-500" />
+              <div>
+                <p className="text-sm text-gray-600">Ruta</p>
                 <p className="font-medium">
-                  {datosViaje.fecha} - {datosViaje.hora}
+                  {comprobante.origen} → {comprobante.destino}
                 </p>
               </div>
             </div>
 
-            <div className="flex items-center gap-3 p-3 bg-white rounded-lg">
-              <CreditCard className="w-5 h-5 text-gray-500" />
+            <div className="flex items-center gap-3">
+              <CreditCard className="w-4 h-4 text-gray-500" />
               <div>
                 <p className="text-sm text-gray-600">Método de Pago</p>
-                <p className="font-medium">{datosViaje.metodo}</p>
+                <p className="font-medium">{comprobante.metodo_pago}</p>
               </div>
             </div>
           </div>
 
-          {/* Monto Total */}
-          <div className="text-center p-4 bg-blue-600 text-white rounded-lg">
-            <p className="text-sm opacity-90">Monto Total</p>
-            <p className="text-2xl font-bold">Bs. {datosViaje.precio}</p>
+          {/* Monto */}
+          <div className="bg-green-50 p-4 rounded-lg text-center border">
+            <p className="text-sm text-gray-600">Monto Pagado</p>
+            <p className="text-3xl font-bold text-green-600">Bs. {comprobante.monto.toFixed(2)}</p>
           </div>
 
-          {/* Información de Verificación */}
-          {comprobante.verificado && comprobante.fecha_verificacion && (
-            <div className="p-3 bg-green-100 rounded-lg">
-              <div className="flex items-center gap-2 text-green-800">
-                <CheckCircle className="w-5 h-5" />
-                <span className="font-semibold">Comprobante Verificado</span>
-              </div>
-              <p className="text-sm text-green-700 mt-1">
-                Verificado el {new Date(comprobante.fecha_verificacion).toLocaleString()}
-              </p>
-            </div>
-          )}
-
-          {/* Código QR si existe */}
+          {/* QR Code */}
           {comprobante.qr_data && (
-            <div className="text-center p-4 bg-white rounded-lg border">
-              <p className="text-sm text-gray-600 mb-2">Código QR del Pago</p>
-              <div className="w-32 h-32 bg-gray-200 rounded-lg mx-auto flex items-center justify-center">
-                <QrCode className="w-16 h-16 text-gray-400" />
-              </div>
-              <p className="text-xs text-gray-500 mt-2">Datos: {comprobante.qr_data}</p>
+            <div className="text-center border-t pt-4">
+              {(() => {
+                try {
+                  const qrInfo = JSON.parse(comprobante.qr_data);
+                  if (qrInfo.qrImageUrl) {
+                    // eslint-disable-next-line @next/next/no-img-element
+                    return <img src={qrInfo.qrImageUrl || "/placeholder.svg"} alt="Código QR" className="w-24 h-24 mx-auto object-contain" />;
+                  }
+                } catch (e) {
+                  // Fallback if qr_data is not a valid JSON or qrImageUrl is missing
+                }
+                return (
+                  <div className="w-24 h-24 bg-gray-100 border-2 border-dashed border-gray-300 rounded-lg mx-auto flex items-center justify-center">
+                    <QrCode className="w-8 h-8 text-gray-400" />
+                  </div>
+                );
+              })()}
+              <p className="text-xs text-gray-500 mt-2">Código QR de verificación</p>
             </div>
           )}
-        </CardContent>
-      </Card>
 
-      {/* Verificación Manual (solo para secretaría/conductores) */}
-      {mostrarVerificacion && !comprobante.verificado && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-lg">Verificar Comprobante</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="space-y-2">
-              <Label>Código de Verificación (opcional)</Label>
-              <Input
-                placeholder="Ingrese código si es necesario"
-                value={codigoVerificacion}
-                onChange={(e) => setCodigoVerificacion(e.target.value)}
-              />
-            </div>
-            <Button onClick={handleVerificar} disabled={verificando} className="w-full">
-              {verificando ? "Verificando..." : "Verificar Comprobante"}
+          {/* Botones de Acción */}
+          <div className="flex gap-2 pt-4">
+            <Button
+              onClick={descargarComprobante}
+              disabled={descargando}
+              className="flex-1 bg-transparent"
+              variant="outline"
+            >
+              <Download className="w-4 h-4 mr-2" />
+              {descargando ? "Descargando..." : "Descargar"}
             </Button>
-          </CardContent>
-        </Card>
-      )}
 
-      {/* Acciones */}
-      <div className="grid grid-cols-3 gap-3">
-        <Button variant="outline" onClick={descargarComprobante} className="bg-transparent">
-          <Download className="w-4 h-4 mr-2" />
-          Descargar
-        </Button>
-        <Button variant="outline" onClick={compartirComprobante} className="bg-transparent">
-          <Share2 className="w-4 h-4 mr-2" />
-          Compartir
-        </Button>
-        <Button variant="outline" onClick={copiarNumeroComprobante} className="bg-transparent">
-          {copiado ? <CheckCircle className="w-4 h-4 mr-2" /> : <Copy className="w-4 h-4 mr-2" />}
-          {copiado ? "¡Copiado!" : "Copiar"}
-        </Button>
-      </div>
+            <Button onClick={compartirComprobante} className="flex-1 bg-transparent" variant="outline">
+              <Share2 className="w-4 h-4 mr-2" />
+              Compartir
+            </Button>
+          </div>
 
-      {/* Información Legal */}
-      <Card className="border-gray-200 bg-gray-50">
-        <CardContent className="p-4">
-          <h4 className="font-semibold text-gray-800 mb-2">Información Legal</h4>
-          <ul className="text-xs text-gray-600 space-y-1">
-            <li>• Este comprobante es válido como prueba de pago</li>
-            <li>• Conserve este comprobante para sus registros</li>
-            <li>• En caso de reclamos, presente este comprobante</li>
-            <li>• Sindicato 27 de Noviembre - Warnes</li>
-            <li>• Fecha de emisión: {new Date(comprobante.created_at).toLocaleString()}</li>
-          </ul>
+          {/* Botón de Verificación (solo para conductores/secretaría) */}
+          {onVerificar && comprobante.estado === "pendiente" && ( // Solo verificar si está pendiente
+            <Button onClick={onVerificar} className="w-full bg-green-600 hover:bg-green-700">
+              <CheckCircle className="w-4 h-4 mr-2" />
+              Verificar Comprobante
+            </Button>
+          )}
+
+          {/* Footer */}
+          <div className="text-center text-xs text-gray-500 border-t pt-4">
+            <p>Este comprobante es válido como prueba de pago</p>
+            <p>Sindicato de Transporte 27 de Noviembre - Warnes</p>
+            <p>¡Gracias por viajar con nosotros!</p>
+          </div>
         </CardContent>
       </Card>
     </div>

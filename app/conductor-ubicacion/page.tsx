@@ -3,243 +3,235 @@
 import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
-import { Switch } from "@/components/ui/switch"
-import { ArrowLeft, MapPin, Navigation, Wifi, WifiOff, Clock } from "lucide-react"
+import { MapPin, Loader2, CheckCircle, XCircle } from "lucide-react"
+import MapaTiempoReal from "@/components/mapa-tiempo-real"
+import { useAuth } from "@/hooks/use-auth"
+import { actualizarUbicacionConductor, obtenerConductor } from "@/lib/database"
+import { toast } from "@/hooks/use-toast"
 
-export default function ConductorUbicacion() {
-  const [gpsActivo, setGpsActivo] = useState(true)
-  const [compartirUbicacion, setCompartirUbicacion] = useState(true)
-  const [ultimaActualizacion, setUltimaActualizacion] = useState(new Date())
-  const [coordenadas, setCoordenadas] = useState({
-    lat: -17.7833,
-    lng: -63.1821,
-  })
+export default function ConductorUbicacionPage() {
+  const { usuario, loading: authLoading } = useAuth()
+  const [currentLocation, setCurrentLocation] = useState<{ lat: number; lng: number } | null>(null)
+  const [loadingLocation, setLoadingLocation] = useState(true)
+  const [updatingLocation, setUpdatingLocation] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
-  // Simular actualizaciones de GPS
   useEffect(() => {
-    if (gpsActivo) {
-      const interval = setInterval(() => {
-        setCoordenadas((prev) => ({
-          lat: prev.lat + (Math.random() - 0.5) * 0.001,
-          lng: prev.lng + (Math.random() - 0.5) * 0.001,
-        }))
-        setUltimaActualizacion(new Date())
-      }, 5000)
-
-      return () => clearInterval(interval)
+    if (!authLoading && (!usuario || usuario.tipo_usuario !== "conductor")) {
+      setError("Acceso denegado. Solo conductores pueden acceder a esta página.")
+      setLoadingLocation(false)
+      return
     }
-  }, [gpsActivo])
 
-  const formatearTiempo = (fecha: Date) => {
-    return fecha.toLocaleTimeString("es-BO", {
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-    })
+    if (usuario && usuario.tipo_usuario === "conductor") {
+      // Intentar obtener la última ubicación guardada del conductor
+      const fetchLastLocation = async () => {
+        try {
+          const conductorData = await obtenerConductor(usuario.id)
+          if (conductorData?.ubicacion_lat && conductorData?.ubicacion_lng) {
+            setCurrentLocation({ lat: conductorData.ubicacion_lat, lng: conductorData.ubicacion_lng })
+          }
+        } catch (err) {
+          console.error("Error fetching last location:", err)
+        } finally {
+          setLoadingLocation(false)
+        }
+      }
+      fetchLastLocation()
+    }
+  }, [usuario, authLoading])
+
+  const obtenerUbicacionActual = () => {
+    setLoadingLocation(true)
+    setError(null)
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          const { latitude, longitude } = position.coords
+          setCurrentLocation({ lat: latitude, lng: longitude })
+          setLoadingLocation(false)
+          toast({
+            title: "Ubicación obtenida",
+            description: "Tu ubicación actual ha sido detectada.",
+          })
+        },
+        (geoError) => {
+          console.error("Error al obtener la ubicación:", geoError)
+          setError("No se pudo obtener la ubicación. Asegúrate de permitir el acceso a la ubicación.")
+          setLoadingLocation(false)
+          toast({
+            title: "Error de ubicación",
+            description: "No se pudo obtener tu ubicación. Revisa los permisos.",
+            variant: "destructive",
+          })
+        },
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 },
+      )
+    } else {
+      setError("Tu navegador no soporta geolocalización.")
+      setLoadingLocation(false)
+      toast({
+        title: "Error de navegador",
+        description: "Tu navegador no soporta la geolocalización.",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const handleActualizarUbicacion = async () => {
+    if (!usuario || usuario.tipo_usuario !== "conductor" || !currentLocation) return
+
+    setUpdatingLocation(true)
+    try {
+      const success = await actualizarUbicacionConductor(usuario.id, currentLocation.lat, currentLocation.lng)
+      if (success) {
+        toast({
+          title: "Ubicación actualizada",
+          description: "Tu ubicación ha sido guardada en la base de datos.",
+        })
+      } else {
+        toast({
+          title: "Error al actualizar",
+          description: "No se pudo guardar tu ubicación.",
+          variant: "destructive",
+        })
+      }
+    } catch (err) {
+      console.error("Error updating location:", err)
+      toast({
+        title: "Error inesperado",
+        description: "Ocurrió un error al actualizar la ubicación.",
+        variant: "destructive",
+      })
+    } finally {
+      setUpdatingLocation(false)
+    }
+  }
+
+  if (authLoading) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen bg-gray-50">
+        <Loader2 className="w-12 h-12 animate-spin text-blue-600 mb-4" />
+        <p className="text-lg text-gray-700">Cargando autenticación...</p>
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen bg-gray-50 p-4 flex flex-col items-center justify-center">
+        <Card className="w-full max-w-md text-center">
+          <CardContent className="p-6">
+            <XCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
+            <h2 className="text-xl font-bold text-red-800 mb-2">Error de Acceso</h2>
+            <p className="text-red-700 mb-4">{error}</p>
+            <Button onClick={() => window.history.back()}>Volver</Button>
+          </CardContent>
+        </Card>
+      </div>
+    )
   }
 
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
       <div className="bg-green-600 text-white p-4">
-        <div className="flex items-center gap-3">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="text-white hover:bg-green-700"
-            onClick={() => window.history.back()}
-          >
-            <ArrowLeft className="w-5 h-5" />
-          </Button>
+        <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-lg font-semibold">Mi Ubicación GPS</h1>
-            <p className="text-green-100 text-sm">Control de seguimiento</p>
+            <h1 className="text-xl font-bold">Mi Ubicación</h1>
+            <p className="text-green-100">Actualiza tu posición en el mapa</p>
           </div>
+          {/* Podrías añadir un botón de perfil o ajustes aquí */}
         </div>
       </div>
 
-      <div className="p-4 space-y-4">
-        {/* Estado del GPS */}
-        <Card className={`border-l-4 ${gpsActivo ? "border-l-green-500 bg-green-50" : "border-l-red-500 bg-red-50"}`}>
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div
-                  className={`w-12 h-12 rounded-full flex items-center justify-center ${gpsActivo ? "bg-green-100" : "bg-red-100"}`}
-                >
-                  {gpsActivo ? (
-                    <Wifi className="w-6 h-6 text-green-600" />
-                  ) : (
-                    <WifiOff className="w-6 h-6 text-red-600" />
-                  )}
-                </div>
-                <div>
-                  <h3 className="font-semibold">{gpsActivo ? "GPS Activo" : "GPS Desactivado"}</h3>
-                  <p className="text-sm text-gray-600">
-                    {gpsActivo ? "Ubicación compartida en tiempo real" : "No se está compartiendo ubicación"}
-                  </p>
-                </div>
-              </div>
-              <Badge variant={gpsActivo ? "default" : "secondary"}>{gpsActivo ? "CONECTADO" : "DESCONECTADO"}</Badge>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Controles de GPS */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Configuración de Ubicación</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="font-medium">Activar GPS</p>
-                <p className="text-sm text-gray-600">Permite el seguimiento de tu vehículo</p>
-              </div>
-              <Switch checked={gpsActivo} onCheckedChange={setGpsActivo} />
-            </div>
-
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="font-medium">Compartir Ubicación</p>
-                <p className="text-sm text-gray-600">Visible para pasajeros y secretaría</p>
-              </div>
-              <Switch checked={compartirUbicacion} onCheckedChange={setCompartirUbicacion} />
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Información de Ubicación */}
-        <Card>
+      <div className="p-4">
+        <Card className="mb-4">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <MapPin className="w-5 h-5" />
               Ubicación Actual
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <p className="text-sm text-gray-600">Latitud</p>
-                <p className="font-mono text-sm">{coordenadas.lat.toFixed(6)}</p>
+          <CardContent>
+            {loadingLocation ? (
+              <div className="flex items-center justify-center h-48 bg-gray-100 rounded-lg">
+                <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
+                <p className="ml-2 text-gray-600">Obteniendo ubicación...</p>
               </div>
-              <div>
-                <p className="text-sm text-gray-600">Longitud</p>
-                <p className="font-mono text-sm">{coordenadas.lng.toFixed(6)}</p>
+            ) : currentLocation ? (
+              <>
+                <MapaTiempoReal
+                  vehiculos={[
+                    {
+                      id: usuario?.id || "mock-id",
+                      conductor: usuario?.nombre || "Conductor",
+                      vehiculo: "Tu Vehículo",
+                      placa: "N/A",
+                      lat: currentLocation.lat,
+                      lng: currentLocation.lng,
+                      estado: "disponible", // Asumimos disponible para mostrar
+                      pasajeros: 0,
+                      capacidad: 0,
+                      telefono: usuario?.telefono || "N/A",
+                    },
+                  ]}
+                  centroMapa={currentLocation}
+                  zoom={15}
+                />
+                <p className="text-sm text-gray-600 mt-3 text-center">
+                  Lat: {currentLocation.lat.toFixed(6)}, Lng: {currentLocation.lng.toFixed(6)}
+                </p>
+              </>
+            ) : (
+              <div className="text-center py-8 text-gray-500">
+                <MapPin className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                <p>No se ha detectado tu ubicación.</p>
+                <p className="text-sm">Haz clic en "Obtener Ubicación" para empezar.</p>
               </div>
-            </div>
+            )}
+          </CardContent>
+        </Card>
 
-            <div className="flex items-center gap-2 text-sm text-gray-600">
-              <Clock className="w-4 h-4" />
-              <span>Última actualización: {formatearTiempo(ultimaActualizacion)}</span>
-            </div>
-
-            <div className="flex gap-2">
-              <Button className="flex-1">
-                <Navigation className="w-4 h-4 mr-2" />
-                Actualizar Ubicación
-              </Button>
-              <Button variant="outline" className="flex-1 bg-transparent">
+        <div className="grid grid-cols-1 gap-3">
+          <Button onClick={obtenerUbicacionActual} disabled={loadingLocation}>
+            {loadingLocation ? (
+              <>
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                Obteniendo...
+              </>
+            ) : (
+              <>
                 <MapPin className="w-4 h-4 mr-2" />
-                Ver en Mapa
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
+                Obtener Ubicación Actual
+              </>
+            )}
+          </Button>
+          <Button
+            onClick={handleActualizarUbicacion}
+            disabled={!currentLocation || updatingLocation}
+            variant="outline"
+            className="bg-transparent"
+          >
+            {updatingLocation ? (
+              <>
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                Actualizando...
+              </>
+            ) : (
+              <>
+                <CheckCircle className="w-4 h-4 mr-2" />
+                Guardar Ubicación
+              </>
+            )}
+          </Button>
+        </div>
 
-        {/* Estadísticas de Ubicación */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Estadísticas de Hoy</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-3 gap-4 text-center">
-              <div>
-                <p className="text-2xl font-bold text-blue-600">45.2</p>
-                <p className="text-sm text-gray-600">km recorridos</p>
-              </div>
-              <div>
-                <p className="text-2xl font-bold text-green-600">6.5</p>
-                <p className="text-sm text-gray-600">horas activo</p>
-              </div>
-              <div>
-                <p className="text-2xl font-bold text-purple-600">14</p>
-                <p className="text-sm text-gray-600">pasajeros</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Historial de Ubicaciones */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Historial Reciente</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3">
-              {[
-                { hora: "15:30", ubicacion: "Terminal Warnes", accion: "Recogida de pasajeros" },
-                { hora: "15:15", ubicacion: "Av. Principal", accion: "En ruta" },
-                { hora: "15:00", ubicacion: "Plaza Montero", accion: "Llegada al destino" },
-                { hora: "14:45", ubicacion: "Carretera Warnes-Montero", accion: "En viaje" },
-              ].map((registro, index) => (
-                <div key={index} className="flex items-center gap-3 p-2 border rounded">
-                  <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
-                  <div className="flex-1">
-                    <p className="text-sm font-medium">{registro.ubicacion}</p>
-                    <p className="text-xs text-gray-600">{registro.accion}</p>
-                  </div>
-                  <span className="text-xs text-gray-500">{registro.hora}</span>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Configuración Avanzada */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Configuración Avanzada</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="space-y-2">
-              <p className="font-medium">Frecuencia de Actualización</p>
-              <div className="grid grid-cols-3 gap-2">
-                <Button variant="outline" size="sm" className="bg-transparent">
-                  5 seg
-                </Button>
-                <Button size="sm">10 seg</Button>
-                <Button variant="outline" size="sm" className="bg-transparent">
-                  30 seg
-                </Button>
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <p className="font-medium">Precisión GPS</p>
-              <div className="grid grid-cols-2 gap-2">
-                <Button size="sm">Alta</Button>
-                <Button variant="outline" size="sm" className="bg-transparent">
-                  Estándar
-                </Button>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Información Importante */}
-        <Card className="border-blue-200 bg-blue-50">
-          <CardContent className="p-4">
-            <h4 className="font-semibold text-blue-800 mb-2">Información Importante</h4>
-            <ul className="text-sm text-blue-700 space-y-1">
-              <li>• El GPS debe estar activo para recibir solicitudes de viaje</li>
-              <li>• La ubicación se actualiza automáticamente cada 10 segundos</li>
-              <li>• Los pasajeros pueden ver tu ubicación en tiempo real</li>
-              <li>• Desactivar el GPS te pondrá fuera de servicio</li>
-            </ul>
-          </CardContent>
-        </Card>
+        {error && (
+          <div className="mt-4 p-3 bg-red-100 border border-red-200 text-red-700 rounded-lg">
+            <p className="text-sm">{error}</p>
+          </div>
+        )}
       </div>
     </div>
   )

@@ -36,11 +36,11 @@ export default function AuthPage() {
       if (isLogin) {
         const { data, error } = await signIn(formData.email, formData.password)
         if (error) {
-          alert(`Error: ${error.message}`)
+          alert(`Error al iniciar sesión: ${error.message}`)
         } else if (data.user) {
           // Redirigir según el tipo de usuario
-          const userData = data.user.user_metadata
-          const tipoUsuario = userData?.tipo_usuario || "usuario"
+          // El tipo de usuario se obtiene del user_metadata que se guardó durante el registro
+          const tipoUsuario = data.user.user_metadata?.tipo_usuario || "usuario"
 
           switch (tipoUsuario) {
             case "conductor":
@@ -58,12 +58,16 @@ export default function AuthPage() {
           nombre: formData.nombre,
           telefono: formData.telefono,
           tipo_usuario: formData.tipo_usuario,
+          codigo_conductor: formData.tipo_usuario === "conductor" ? formData.codigo_conductor : undefined,
         })
 
         if (error) {
-          alert(`Error: ${error.message}`)
+          alert(`Error al registrarse: ${error.message}`)
         } else {
-          alert("Registro exitoso. Revisa tu email para confirmar tu cuenta.")
+          alert(
+            "Registro exitoso. Revisa tu email para confirmar tu cuenta (si la confirmación por email está habilitada).",
+          )
+          setIsLogin(true) // Cambiar a la pestaña de login después del registro exitoso
         }
       }
     } catch (error) {

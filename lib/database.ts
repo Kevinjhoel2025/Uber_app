@@ -8,51 +8,14 @@ import type {
   ConductorBadge,
   ConductorLogro,
   EstadisticasConductor,
+  Comprobante,
+  SolicitudEspecial,
+  Retiro,
+  Ruta,
+  Ubicacion,
+  Pago,
+  Mensaje,
 } from "./supabase"
-
-// Tipos adicionales
-export interface Comprobante {
-  id: string
-  pago_id: string
-  numero_comprobante: string
-  qr_data?: string
-  url_comprobante?: string
-  verificado: boolean
-  fecha_verificacion?: string
-  verificado_por?: string
-  created_at: string
-}
-
-export interface SolicitudEspecial {
-  id: string
-  pasajero_id: string
-  destino: string
-  fecha_viaje: string
-  pasajeros: number
-  comentarios?: string
-  estado: "pendiente" | "asignado" | "confirmado" | "completado" | "cancelado"
-  conductor_asignado?: string
-  precio_estimado?: number
-  created_at: string
-  updated_at: string
-  pasajero?: Usuario
-  conductor?: Conductor
-}
-
-export interface Retiro {
-  id: string
-  conductor_id: string
-  monto: number
-  metodo: string
-  datos_metodo: any
-  estado: "pendiente" | "procesando" | "completado" | "rechazado"
-  procesado_por?: string
-  fecha_procesado?: string
-  notas?: string
-  created_at: string
-  updated_at: string
-  conductor?: Conductor
-}
 
 // Funciones para Usuarios
 export const obtenerUsuario = async (id: string): Promise<Usuario | null> => {
@@ -67,7 +30,7 @@ export const obtenerUsuario = async (id: string): Promise<Usuario | null> => {
 }
 
 export const crearUsuario = async (
-  usuario: Omit<Usuario, "id" | "created_at" | "updated_at">,
+  usuario: Omit<Usuario, "id" | "created_at" | "updated_at" | "fecha_registro" | "activo">,
 ): Promise<Usuario | null> => {
   const { data, error } = await supabase.from("usuarios").insert(usuario).select().single()
 
@@ -94,10 +57,12 @@ export const actualizarUsuario = async (id: string, datos: Partial<Usuario>): Pr
 export const obtenerConductor = async (id: string): Promise<Conductor | null> => {
   const { data, error } = await supabase
     .from("conductores")
-    .select(`
+    .select(
+      `
       *,
       usuario:usuarios(*)
-    `)
+    `,
+    )
     .eq("id", id)
     .single()
 
@@ -112,12 +77,14 @@ export const obtenerConductor = async (id: string): Promise<Conductor | null> =>
 export const obtenerConductoresActivos = async (): Promise<Conductor[]> => {
   const { data, error } = await supabase
     .from("conductores")
-    .select(`
+    .select(
+      `
       *,
       usuario:usuarios(*)
-    `)
+    `,
+    )
     .eq("estado", "disponible")
-    .eq("usuarios.activo", true)
+    .order("ultima_ubicacion", { ascending: false })
 
   if (error) {
     console.error("Error obteniendo conductores activos:", error)
@@ -159,16 +126,69 @@ export const actualizarEstadoConductor = async (
   return true
 }
 
+// Funciones para Rutas
+export const obtenerRutas = async (): Promise<Ruta[]> => {
+  const { data, error } = await supabase
+    .from("rutas")
+    .select("*")
+    .eq("activa", true)
+    .order("origen", { ascending: true })
+
+  if (error) {
+    console.error("Error obteniendo rutas:", error)
+    return []
+  }
+
+  return data || []
+}
+
+export const obtenerPrecioRuta = async (origen: string, destino: string): Promise<number | null> => {
+  const { data, error } = await supabase
+    .from("rutas")
+    .select("precio_base")
+    .eq("origen", origen)
+    .eq("destino", destino)
+    .eq("activa", true)
+    .single()
+
+  if (error) {
+    console.error("Error obteniendo precio de ruta:", error)
+    return null
+  }
+
+  return data?.precio_base || null
+}
+
+// Funciones para Ubicaciones
+export const obtenerUbicaciones = async (): Promise<Ubicacion[]> => {
+  const { data, error } = await supabase
+    .from("ubicaciones")
+    .select("*")
+    .eq("activa", true)
+    .order("nombre", { ascending: true })
+
+  if (error) {
+    console.error("Error obteniendo ubicaciones:", error)
+    return []
+  }
+
+  return data || []
+}
+
 // Funciones para Viajes
-export const crearViaje = async (viaje: Omit<Viaje, "id" | "created_at" | "updated_at">): Promise<Viaje | null> => {
+export const crearViaje = async (
+  viaje: Omit<Viaje, "id" | "created_at" | "updated_at" | "estado">,
+): Promise<Viaje | null> => {
   const { data, error } = await supabase
     .from("viajes")
-    .insert(viaje)
-    .select(`
+    .insert({ ...viaje, estado: "pendiente" })
+    .select(
+      `
       *,
       conductor:conductores(*),
       pasajero:usuarios(*)
-    `)
+    `,
+    )
     .single()
 
   if (error) {
@@ -182,13 +202,15 @@ export const crearViaje = async (viaje: Omit<Viaje, "id" | "created_at" | "updat
 export const obtenerViajesUsuario = async (usuarioId: string): Promise<Viaje[]> => {
   const { data, error } = await supabase
     .from("viajes")
-    .select(`
+    .select(
+      `
       *,
       conductor:conductores(
         *,
         usuario:usuarios(*)
       )
-    `)
+    `,
+    )
     .eq("pasajero_id", usuarioId)
     .order("fecha_viaje", { ascending: false })
 
@@ -203,10 +225,12 @@ export const obtenerViajesUsuario = async (usuarioId: string): Promise<Viaje[]> 
 export const obtenerViajesConductor = async (conductorId: string): Promise<Viaje[]> => {
   const { data, error } = await supabase
     .from("viajes")
-    .select(`
+    .select(
+      `
       *,
       pasajero:usuarios(*)
-    `)
+    `,
+    )
     .eq("conductor_id", conductorId)
     .order("fecha_viaje", { ascending: false })
 
@@ -215,6 +239,28 @@ export const obtenerViajesConductor = async (conductorId: string): Promise<Viaje
     return []
   }
 
+  return data || []
+}
+
+export const obtenerViajesHoyConductor = async (conductorId: string): Promise<Viaje[]> => {
+  const today = new Date().toISOString().split("T")[0] // YYYY-MM-DD
+  const { data, error } = await supabase
+    .from("viajes")
+    .select(
+      `
+      *,
+      pasajero:usuarios(*)
+    `,
+    )
+    .eq("conductor_id", conductorId)
+    .gte("fecha_viaje", `${today}T00:00:00.000Z`)
+    .lte("fecha_viaje", `${today}T23:59:59.999Z`)
+    .order("fecha_viaje", { ascending: false })
+
+  if (error) {
+    console.error("Error obteniendo viajes de hoy del conductor:", error)
+    return []
+  }
   return data || []
 }
 
@@ -232,132 +278,101 @@ export const actualizarEstadoViaje = async (
   return true
 }
 
-// Funciones para Calificaciones
-export const crearCalificacion = async (
-  calificacion: Omit<Calificacion, "id" | "created_at" | "updated_at" | "verificado">,
-): Promise<Calificacion | null> => {
+// Funciones para Pagos
+export const crearPago = async (
+  pago: Omit<Pago, "id" | "created_at" | "updated_at" | "estado">,
+): Promise<Pago | null> => {
   const { data, error } = await supabase
-    .from("calificaciones")
-    .insert({ ...calificacion, verificado: true })
-    .select(`
+    .from("pagos")
+    .insert({ ...pago, estado: "pendiente" })
+    .select(
+      `
       *,
       viaje:viajes(*),
       pasajero:usuarios(*),
-      conductor:conductores(
-        *,
-        usuario:usuarios(*)
-      )
-    `)
+      conductor:conductores(*)
+    `,
+    )
     .single()
 
   if (error) {
-    console.error("Error creando calificación:", error)
+    console.error("Error creando pago:", error)
     return null
   }
 
   return data
 }
 
-export const obtenerCalificacionesConductor = async (conductorId: string): Promise<Calificacion[]> => {
+export const obtenerPagosUsuario = async (usuarioId: string): Promise<Pago[]> => {
   const { data, error } = await supabase
-    .from("calificaciones")
-    .select(`
+    .from("pagos")
+    .select(
+      `
       *,
-      pasajero:usuarios(*),
-      respuesta:respuestas_calificaciones(*)
-    `)
-    .eq("conductor_id", conductorId)
-    .eq("verificado", true)
+      viaje:viajes(origen, destino),
+      conductor:conductores(usuario(nombre))
+    `,
+    )
+    .eq("pasajero_id", usuarioId)
     .order("created_at", { ascending: false })
 
   if (error) {
-    console.error("Error obteniendo calificaciones del conductor:", error)
+    console.error("Error obteniendo pagos del usuario:", error)
     return []
   }
-
   return data || []
 }
 
-export const obtenerEstadisticasConductor = async (conductorId: string): Promise<EstadisticasConductor | null> => {
-  const { data, error } = await supabase.rpc("obtener_estadisticas_conductor", { conductor_uuid: conductorId })
+export const obtenerPagosConductor = async (conductorId: string): Promise<Pago[]> => {
+  const { data, error } = await supabase
+    .from("pagos")
+    .select(
+      `
+      *,
+      viaje:viajes(origen, destino),
+      pasajero:usuarios(nombre)
+    `,
+    )
+    .eq("conductor_id", conductorId)
+    .order("created_at", { ascending: false })
 
   if (error) {
-    console.error("Error obteniendo estadísticas del conductor:", error)
+    console.error("Error obteniendo pagos del conductor:", error)
+    return []
+  }
+  return data || []
+}
+
+export const obtenerTransaccionesSecretaria = async (): Promise<Pago[]> => {
+  const { data, error } = await supabase
+    .from("pagos")
+    .select(
+      `
+      *,
+      viaje:viajes(origen, destino),
+      pasajero:usuarios(nombre),
+      conductor:conductores(usuario(nombre))
+    `,
+    )
+    .order("created_at", { ascending: false })
+
+  if (error) {
+    console.error("Error obteniendo transacciones de secretaría:", error)
+    return []
+  }
+  return data || []
+}
+
+export const actualizarEstadoPago = async (
+  pagoId: string,
+  estado: "pendiente" | "completado" | "fallido" | "reembolsado",
+): Promise<Pago | null> => {
+  const { data, error } = await supabase.from("pagos").update({ estado }).eq("id", pagoId).select().single()
+  if (error) {
+    console.error("Error actualizando estado de pago:", error)
     return null
   }
-
   return data
-}
-
-export const crearRespuestaCalificacion = async (
-  calificacionId: string,
-  conductorId: string,
-  respuesta: string,
-): Promise<RespuestaCalificacion | null> => {
-  const { data, error } = await supabase
-    .from("respuestas_calificaciones")
-    .insert({
-      calificacion_id: calificacionId,
-      conductor_id: conductorId,
-      respuesta,
-    })
-    .select()
-    .single()
-
-  if (error) {
-    console.error("Error creando respuesta:", error)
-    return null
-  }
-
-  return data
-}
-
-// Funciones para Badges y Logros
-export const obtenerBadgesConductor = async (conductorId: string): Promise<ConductorBadge[]> => {
-  const { data, error } = await supabase
-    .from("conductor_badges")
-    .select(`
-      *,
-      badge:badges(*)
-    `)
-    .eq("conductor_id", conductorId)
-    .order("fecha_obtenido", { ascending: false })
-
-  if (error) {
-    console.error("Error obteniendo badges del conductor:", error)
-    return []
-  }
-
-  return data || []
-}
-
-export const obtenerLogrosConductor = async (conductorId: string): Promise<ConductorLogro[]> => {
-  const { data, error } = await supabase
-    .from("conductor_logros")
-    .select(`
-      *,
-      logro:logros(*)
-    `)
-    .eq("conductor_id", conductorId)
-    .order("fecha_obtenido", { ascending: false })
-
-  if (error) {
-    console.error("Error obteniendo logros del conductor:", error)
-    return []
-  }
-
-  return data || []
-}
-
-export const obtenerRankingConductores = async (limite = 10) => {
-  const { data, error } = await supabase.rpc("obtener_ranking_conductores", { limite })
-
-  if (error) {
-    console.error("Error obteniendo ranking de conductores:", error)
-    return []
-  }
-
-  return data || []
 }
 
 // Funciones para Comprobantes
@@ -405,7 +420,7 @@ export const verificarComprobante = async (comprobanteId: string, verificadoPor:
   return true
 }
 
-export const obtenerComprobante = async (pagoId: string): Promise<Comprobante | null> => {
+export const obtenerComprobantePorPagoId = async (pagoId: string): Promise<Comprobante | null> => {
   const { data, error } = await supabase.from("comprobantes").select("*").eq("pago_id", pagoId).single()
 
   if (error) {
@@ -416,17 +431,156 @@ export const obtenerComprobante = async (pagoId: string): Promise<Comprobante | 
   return data
 }
 
+// Funciones para Calificaciones
+export const crearCalificacion = async (
+  calificacion: Omit<Calificacion, "id" | "created_at" | "updated_at" | "verificado">,
+): Promise<Calificacion | null> => {
+  const { data, error } = await supabase
+    .from("calificaciones")
+    .insert({ ...calificacion, verificado: true })
+    .select(
+      `
+      *,
+      viaje:viajes(*),
+      pasajero:usuarios(*),
+      conductor:conductores(
+        *,
+        usuario:usuarios(*)
+      )
+    `,
+    )
+    .single()
+
+  if (error) {
+    console.error("Error creando calificación:", error)
+    return null
+  }
+
+  return data
+}
+
+export const obtenerCalificacionesConductor = async (conductorId: string): Promise<Calificacion[]> => {
+  const { data, error } = await supabase
+    .from("calificaciones")
+    .select(
+      `
+      *,
+      pasajero:usuarios(*),
+      respuesta:respuestas_calificaciones(*)
+    `,
+    )
+    .eq("conductor_id", conductorId)
+    .eq("verificado", true)
+    .order("created_at", { ascending: false })
+
+  if (error) {
+    console.error("Error obteniendo calificaciones del conductor:", error)
+    return []
+  }
+
+  return data || []
+}
+
+export const obtenerEstadisticasConductor = async (conductorId: string): Promise<EstadisticasConductor | null> => {
+  const { data, error } = await supabase.rpc("obtener_estadisticas_conductor", { conductor_uuid: conductorId })
+
+  if (error) {
+    console.error("Error obteniendo estadísticas del conductor:", error)
+    return null
+  }
+
+  // RPC devuelve un array de un solo objeto, o un objeto vacío si no hay datos
+  return data && data.length > 0 ? data[0] : null
+}
+
+export const crearRespuestaCalificacion = async (
+  calificacionId: string,
+  conductorId: string,
+  respuesta: string,
+): Promise<RespuestaCalificacion | null> => {
+  const { data, error } = await supabase
+    .from("respuestas_calificaciones")
+    .insert({
+      calificacion_id: calificacionId,
+      conductor_id: conductorId,
+      respuesta,
+    })
+    .select()
+    .single()
+
+  if (error) {
+    console.error("Error creando respuesta:", error)
+    return null
+  }
+
+  return data
+}
+
+// Funciones para Badges y Logros
+export const obtenerBadgesConductor = async (conductorId: string): Promise<ConductorBadge[]> => {
+  const { data, error } = await supabase
+    .from("conductor_badges")
+    .select(
+      `
+      *,
+      badge:badges(*)
+    `,
+    )
+    .eq("conductor_id", conductorId)
+    .order("fecha_obtenido", { ascending: false })
+
+  if (error) {
+    console.error("Error obteniendo badges del conductor:", error)
+    return []
+  }
+
+  return data || []
+}
+
+export const obtenerLogrosConductor = async (conductorId: string): Promise<ConductorLogro[]> => {
+  const { data, error } = await supabase
+    .from("conductor_logros")
+    .select(
+      `
+      *,
+      logro:logros(*)
+    `,
+    )
+    .eq("conductor_id", conductorId)
+    .order("fecha_obtenido", { ascending: false })
+
+  if (error) {
+    console.error("Error obteniendo logros del conductor:", error)
+    return []
+  }
+
+  return data || []
+}
+
+export const obtenerRankingConductores = async (limite = 10) => {
+  const { data, error } = await supabase.rpc("obtener_ranking_conductores", { limite })
+
+  if (error) {
+    console.error("Error obteniendo ranking de conductores:", error)
+    return []
+  }
+
+  return data || []
+}
+
 // Funciones para Solicitudes Especiales
 export const crearSolicitudEspecial = async (
   solicitud: Omit<SolicitudEspecial, "id" | "created_at" | "updated_at" | "estado">,
 ): Promise<SolicitudEspecial | null> => {
   const { data, error } = await supabase
     .from("solicitudes_especiales")
-    .insert(solicitud)
-    .select(`
+    .insert({ ...solicitud, estado: "pendiente" })
+    .select(
+      `
       *,
       pasajero:usuarios(*)
-    `)
+    `,
+    )
     .single()
 
   if (error) {
@@ -440,14 +594,16 @@ export const crearSolicitudEspecial = async (
 export const obtenerSolicitudesEspeciales = async (): Promise<SolicitudEspecial[]> => {
   const { data, error } = await supabase
     .from("solicitudes_especiales")
-    .select(`
+    .select(
+      `
       *,
       pasajero:usuarios(*),
       conductor:conductores(
         *,
         usuario:usuarios(*)
       )
-    `)
+    `,
+    )
     .order("created_at", { ascending: false })
 
   if (error) {
@@ -480,6 +636,18 @@ export const asignarConductorSolicitud = async (
   return true
 }
 
+export const actualizarEstadoSolicitudEspecial = async (
+  solicitudId: string,
+  estado: "pendiente" | "asignado" | "confirmado" | "completado" | "cancelado",
+): Promise<boolean> => {
+  const { error } = await supabase.from("solicitudes_especiales").update({ estado }).eq("id", solicitudId)
+  if (error) {
+    console.error("Error actualizando estado de solicitud especial:", error)
+    return false
+  }
+  return true
+}
+
 // Funciones para Retiros
 export const crearRetiro = async (
   conductorId: string,
@@ -495,13 +663,15 @@ export const crearRetiro = async (
       metodo,
       datos_metodo: datosMetodo,
     })
-    .select(`
+    .select(
+      `
       *,
       conductor:conductores(
         *,
         usuario:usuarios(*)
       )
-    `)
+    `,
+    )
     .single()
 
   if (error) {
@@ -530,13 +700,15 @@ export const obtenerRetirosConductor = async (conductorId: string): Promise<Reti
 export const obtenerRetirosPendientes = async (): Promise<Retiro[]> => {
   const { data, error } = await supabase
     .from("retiros")
-    .select(`
+    .select(
+      `
       *,
       conductor:conductores(
         *,
         usuario:usuarios(*)
       )
-    `)
+    `,
+    )
     .eq("estado", "pendiente")
     .order("created_at", { ascending: false })
 
@@ -603,14 +775,16 @@ export const puedeCalificarViaje = async (viajeId: string, usuarioId: string): P
 export const obtenerCalificacionesAtencion = async (): Promise<Calificacion[]> => {
   const { data, error } = await supabase
     .from("calificaciones")
-    .select(`
+    .select(
+      `
       *,
       pasajero:usuarios(*),
       conductor:conductores(
         *,
         usuario:usuarios(*)
       )
-    `)
+    `,
+    )
     .lte("rating_general", 3)
     .eq("verificado", true)
     .order("created_at", { ascending: false })
@@ -624,7 +798,7 @@ export const obtenerCalificacionesAtencion = async (): Promise<Calificacion[]> =
   return data || []
 }
 
-// Función para enviar mensaje
+// Funciones para Mensajes
 export const enviarMensaje = async (
   remitenteId: string,
   destinatarioId: string | null,
@@ -646,16 +820,17 @@ export const enviarMensaje = async (
   return true
 }
 
-// Función para obtener mensajes
-export const obtenerMensajes = async (usuarioId: string): Promise<any[]> => {
+export const obtenerMensajesUsuario = async (usuarioId: string): Promise<Mensaje[]> => {
   const { data, error } = await supabase
     .from("mensajes")
-    .select(`
+    .select(
+      `
       *,
       remitente:usuarios!remitente_id(*),
       destinatario:usuarios!destinatario_id(*)
-    `)
-    .or(`destinatario_id.eq.${usuarioId},destinatario_id.is.null`)
+    `,
+    )
+    .or(`destinatario_id.eq.${usuarioId},destinatario_id.is.null`) // Mensajes para el usuario o broadcast
     .order("created_at", { ascending: false })
 
   if (error) {
@@ -666,7 +841,6 @@ export const obtenerMensajes = async (usuarioId: string): Promise<any[]> => {
   return data || []
 }
 
-// Función para marcar mensaje como leído
 export const marcarMensajeLeido = async (mensajeId: string): Promise<boolean> => {
   const { error } = await supabase.from("mensajes").update({ leido: true }).eq("id", mensajeId)
 

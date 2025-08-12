@@ -1,12 +1,14 @@
 import { createClient } from "@supabase/supabase-js"
 
+// Asegúrate de que estas variables de entorno estén configuradas en tu .env.local
+// y en Vercel para el despliegue.
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey)
 
-// Tipos TypeScript para las tablas
-export interface Usuario {
+// Definiciones de tipos para las tablas de tu base de datos
+export type Usuario = {
   id: string
   nombre: string
   telefono?: string
@@ -19,12 +21,12 @@ export interface Usuario {
   updated_at: string
 }
 
-export interface Conductor {
+export type Conductor = {
   id: string
-  vehiculo: string
-  placa: string
-  capacidad: number
-  codigo_conductor: string
+  vehiculo?: string
+  placa?: string
+  capacidad?: number
+  codigo_conductor?: string
   fecha_ingreso: string
   estado: "disponible" | "en_viaje" | "fuera_servicio"
   ubicacion_lat?: number
@@ -32,12 +34,35 @@ export interface Conductor {
   ultima_ubicacion?: string
   created_at: string
   updated_at: string
-  usuario?: Usuario
+  usuario?: Usuario // Para joins
 }
 
-export interface Viaje {
+export type Ruta = {
   id: string
-  conductor_id: string
+  origen: string
+  destino: string
+  precio_base: number
+  duracion_estimada?: number
+  distancia_km?: number
+  activa: boolean
+  created_at: string
+  updated_at: string
+}
+
+export type Ubicacion = {
+  id: string
+  nombre: string
+  latitud: number
+  longitud: number
+  tipo: "parada" | "terminal" | "punto_referencia"
+  activa: boolean
+  created_at: string
+  updated_at: string
+}
+
+export type Viaje = {
+  id: string
+  conductor_id?: string
   pasajero_id: string
   origen: string
   destino: string
@@ -47,14 +72,45 @@ export interface Viaje {
   estado: "pendiente" | "confirmado" | "en_curso" | "completado" | "cancelado"
   distancia_km?: number
   duracion_minutos?: number
-  metodo_pago?: string
   created_at: string
   updated_at: string
-  conductor?: Conductor
-  pasajero?: Usuario
+  conductor?: Conductor // Para joins
+  pasajero?: Usuario // Para joins
 }
 
-export interface Calificacion {
+export type Pago = {
+  id: string
+  viaje_id: string
+  pasajero_id: string
+  conductor_id: string
+  monto: number
+  metodo: string
+  estado: "pendiente" | "completado" | "fallido" | "reembolsado"
+  referencia_externa?: string
+  comision?: number
+  created_at: string
+  updated_at: string
+  viaje?: Viaje
+  pasajero?: Usuario
+  conductor?: Conductor
+}
+
+export type Comprobante = {
+  id: string
+  pago_id: string
+  numero_comprobante: string
+  qr_data?: string
+  url_comprobante?: string
+  verificado: boolean
+  fecha_verificacion?: string
+  verificado_por?: string
+  created_at: string
+  updated_at: string
+  pago?: Pago // Para joins
+  verificador?: Usuario // Para joins
+}
+
+export type Calificacion = {
   id: string
   viaje_id: string
   pasajero_id: string
@@ -75,53 +131,105 @@ export interface Calificacion {
   respuesta?: RespuestaCalificacion
 }
 
-export interface RespuestaCalificacion {
+export type RespuestaCalificacion = {
   id: string
   calificacion_id: string
   conductor_id: string
   respuesta: string
   created_at: string
+  updated_at: string
 }
 
-export interface Badge {
+export type Badge = {
   id: string
   nombre: string
   descripcion?: string
   icono?: string
-  criterio: any
+  criterio?: any // JSONB
   activo: boolean
   created_at: string
+  updated_at: string
 }
 
-export interface ConductorBadge {
+export type ConductorBadge = {
   id: string
   conductor_id: string
   badge_id: string
   fecha_obtenido: string
-  badge?: Badge
+  created_at: string
+  updated_at: string
+  badge?: Badge // Para joins
 }
 
-export interface Logro {
+export type Logro = {
   id: string
   nombre: string
   descripcion?: string
-  icono?: string
-  criterio: any
+  icon?: string
+  criterio?: any // JSONB
   puntos: number
   activo: boolean
   created_at: string
+  updated_at: string
 }
 
-export interface ConductorLogro {
+export type ConductorLogro = {
   id: string
   conductor_id: string
   logro_id: string
   fecha_obtenido: string
-  progreso?: any
-  logro?: Logro
+  progreso?: any // JSONB
+  created_at: string
+  updated_at: string
+  logro?: Logro // Para joins
 }
 
-export interface EstadisticasConductor {
+export type SolicitudEspecial = {
+  id: string
+  pasajero_id: string
+  destino: string
+  fecha_viaje: string
+  pasajeros: number
+  comentarios?: string
+  estado: "pendiente" | "asignado" | "confirmado" | "completado" | "cancelado"
+  conductor_asignado?: string
+  precio_estimado?: number
+  created_at: string
+  updated_at: string
+  pasajero?: Usuario
+  conductor?: Conductor
+}
+
+export type Retiro = {
+  id: string
+  conductor_id: string
+  monto: number
+  metodo: string
+  datos_metodo: any // JSONB
+  estado: "pendiente" | "procesando" | "completado" | "rechazado"
+  procesado_por?: string
+  fecha_procesado?: string
+  notas?: string
+  created_at: string
+  updated_at: string
+  conductor?: Conductor
+  procesador?: Usuario
+}
+
+export type Mensaje = {
+  id: string
+  remitente_id?: string
+  destinatario_id?: string
+  tipo: "individual" | "grupal" | "broadcast"
+  mensaje: string
+  leido: boolean
+  created_at: string
+  updated_at: string
+  remitente?: Usuario
+  destinatario?: Usuario
+}
+
+export type EstadisticasConductor = {
   total_viajes: number
   rating_promedio: number
   total_calificaciones: number

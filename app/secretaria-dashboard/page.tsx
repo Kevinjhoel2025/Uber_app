@@ -1,811 +1,688 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Users, Car, DollarSign, MessageSquare, Bell, CheckCircle, XCircle, RefreshCw, ChevronRight, Plus, Send, Star, MapPin, Receipt } from 'lucide-react'
+import { useRouter } from "next/navigation"
+import { useAuth } from "@/hooks/use-auth"
 import {
-  Car,
-  Users,
-  MessageCircle,
-  Phone,
-  MapPin,
-  Clock,
-  CheckCircle,
-  Send,
-  BarChart3,
-  DollarSign,
-  CreditCard,
-  Banknote,
-  XCircle,
-  Star,
-  Award,
-} from "lucide-react"
-import { Switch } from "@/components/ui/switch"
-import MapaTiempoReal from "@/components/mapa-tiempo-real"
+  obtenerUsuario,
+  obtenerConductoresActivos,
+  obtenerTransaccionesSecretaria,
+  obtenerSolicitudesEspeciales,
+  obtenerRetirosPendientes,
+  obtenerCalificacionesAtencion,
+  enviarMensaje,
+  marcarMensajeLeido,
+  obtenerMensajesUsuario,
+  procesarRetiro,
+  asignarConductorSolicitud,
+  actualizarEstadoSolicitudEspecial,
+  verificarComprobante,
+} from "@/lib/database"
+import { Usuario, Conductor, Pago, SolicitudEspecial, Retiro, Calificacion, Mensaje } from "@/lib/supabase"
+import { toast } from "@/hooks/use-toast"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
 
 export default function SecretariaDashboard() {
-  const [selectedTab, setSelectedTab] = useState("solicitudes")
-  const [transaccionesHoy, setTransaccionesHoy] = useState([
-    {
-      id: 1,
-      conductor: "Carlos Mendoza",
-      pasajero: "Ana López",
-      monto: 15,
-      metodo: "QR",
-      estado: "completado",
-      hora: "14:30",
-      comision: 1.5,
-    },
-    {
-      id: 2,
-      conductor: "María González",
-      pasajero: "Roberto Silva",
-      monto: 15,
-      metodo: "Tigo Money",
-      estado: "completado",
-      hora: "15:00",
-      comision: 1.5,
-    },
-    {
-      id: 3,
-      conductor: "Pedro Rojas",
-      pasajero: "Carmen Ruiz",
-      monto: 15,
-      metodo: "Billetera",
-      estado: "pendiente",
-      hora: "15:30",
-      comision: 1.5,
-    },
-  ])
+  const router = useRouter()
+  const { user, signOut } = useAuth()
+  const [secretaria, setSecretaria] = useState<Usuario | null>(null)
+  const [conductores, setConductores] = useState<Conductor[]>([])
+  const [transacciones, setTransacciones] = useState<Pago[]>([])
+  const [solicitudesEspeciales, setSolicitudesEspeciales] = useState<SolicitudEspecial[]>([])
+  const [retirosPendientes, setRetirosPendientes] = useState<Retiro[]>([])
+  const [calificacionesAtencion, setCalificacionesAtencion] = useState<Calificacion[]>([])
+  const [mensajes, setMensajes] = useState<Mensaje[]>([])
+  const [mensajeNuevo, setMensajeNuevo] = useState("")
 
-  const [solicitudesRetiro, setSolicitudesRetiro] = useState([
-    {
-      id: 1,
-      conductor: "Carlos Mendoza",
-      monto: 180,
-      metodo: "Tigo Money",
-      telefono: "70123456",
-      fecha: "2024-01-15",
-      estado: "pendiente",
-    },
-    {
-      id: 2,
-      conductor: "María González",
-      monto: 210,
-      metodo: "Banco Unión",
-      cuenta: "****1234",
-      fecha: "2024-01-15",
-      estado: "procesando",
-    },
-  ])
+  const [isAssignDialogOpen, setIsAssignDialogOpen] = useState(false)
+  const [currentSolicitud, setCurrentSolicitud] = useState<SolicitudEspecial | null>(null)
+  const [selectedConductorId, setSelectedConductorId] = useState<string>("")
+  const [precioEstimado, setPrecioEstimado] = useState<number | string>("")
 
-  const solicitudesEspeciales = [
-    {
-      id: 1,
-      pasajero: "María Rodríguez",
-      telefono: "70555666",
-      destino: "Santa Cruz",
-      fecha: "2024-01-20",
-      hora: "08:00",
-      pasajeros: 3,
-      comentarios: "Viaje familiar, necesitamos salir temprano",
-    },
-    {
-      id: 2,
-      pasajero: "José Pérez",
-      telefono: "70777888",
-      destino: "Cochabamba",
-      fecha: "2024-01-22",
-      hora: "14:00",
-      pasajeros: 1,
-      comentarios: "Viaje de trabajo urgente",
-    },
-  ]
+  const [isRetiroDialogOpen, setIsRetiroDialogOpen] = useState(false)
+  const [currentRetiro, setCurrentRetiro] = useState<Retiro | null>(null)
+  const [retiroNotas, setRetiroNotas] = useState("")
+  const [retiroEstado, setRetiroEstado] = useState<"procesando" | "completado" | "rechazado">("completado")
 
-  const conductoresActivos = [
-    {
-      id: 1,
-      nombre: "Carlos Mendoza",
-      vehiculo: "Toyota Hiace - ABC123",
-      estado: "disponible",
-      ubicacion: "Warnes",
-      telefono: "70123456",
-      pasajeros: 8,
-      capacidad: 12,
-    },
-    {
-      id: 2,
-      nombre: "María González",
-      vehiculo: "Nissan Urvan - XYZ789",
-      estado: "en_viaje",
-      ubicacion: "En ruta a Montero",
-      telefono: "70987654",
-      pasajeros: 10,
-      capacidad: 12,
-    },
-    {
-      id: 3,
-      nombre: "Pedro Rojas",
-      vehiculo: "Ford Transit - DEF456",
-      estado: "disponible",
-      ubicacion: "Montero",
-      telefono: "70456789",
-      pasajeros: 5,
-      capacidad: 12,
-    },
-  ]
+  useEffect(() => {
+    const loadData = async () => {
+      if (user?.id) {
+        const fetchedSecretaria = await obtenerUsuario(user.id)
+        setSecretaria(fetchedSecretaria)
 
-  const estadisticasHoy = {
-    totalViajes: 24,
-    totalPasajeros: 186,
-    ingresos: 2790,
-    conductoresActivos: 8,
+        const fetchedConductores = await obtenerConductoresActivos()
+        setConductores(fetchedConductores)
+
+        const fetchedTransacciones = await obtenerTransaccionesSecretaria()
+        setTransacciones(fetchedTransacciones)
+
+        const fetchedSolicitudes = await obtenerSolicitudesEspeciales()
+        setSolicitudesEspeciales(fetchedSolicitudes)
+
+        const fetchedRetiros = await obtenerRetirosPendientes()
+        setRetirosPendientes(fetchedRetiros)
+
+        const fetchedCalificaciones = await obtenerCalificacionesAtencion()
+        setCalificacionesAtencion(fetchedCalificaciones)
+
+        const fetchedMensajes = await obtenerMensajesUsuario(user.id)
+        setMensajes(fetchedMensajes)
+      }
+    }
+    loadData()
+  }, [user])
+
+  const handleEnviarMensaje = async () => {
+    if (!user?.id || !mensajeNuevo.trim()) {
+      toast({
+        title: "Mensaje vacío",
+        description: "No puedes enviar un mensaje vacío.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    // Enviar mensaje como broadcast (para todos los usuarios/conductores)
+    const success = await enviarMensaje(user.id, null, mensajeNuevo, "broadcast")
+
+    if (success) {
+      toast({
+        title: "Mensaje enviado",
+        description: "Tu mensaje ha sido enviado a todos los usuarios y conductores.",
+      })
+      setMensajeNuevo("")
+      // Recargar mensajes para ver el nuevo
+      const fetchedMensajes = await obtenerMensajesUsuario(user.id)
+      setMensajes(fetchedMensajes)
+    } else {
+      toast({
+        title: "Error al enviar",
+        description: "No se pudo enviar el mensaje.",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const handleMarcarLeido = async (mensajeId: string) => {
+    const success = await marcarMensajeLeido(mensajeId)
+    if (success) {
+      setMensajes((prev) =>
+        prev.map((msg) => (msg.id === mensajeId ? { ...msg, leido: true } : msg)),
+      )
+    } else {
+      toast({
+        title: "Error",
+        description: "No se pudo marcar el mensaje como leído.",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const openAssignDialog = (solicitud: SolicitudEspecial) => {
+    setCurrentSolicitud(solicitud)
+    setIsAssignDialogOpen(true)
+  }
+
+  const handleAssignConductor = async () => {
+    if (!currentSolicitud || !selectedConductorId || !precioEstimado || isNaN(Number(precioEstimado))) {
+      toast({
+        title: "Campos incompletos",
+        description: "Por favor, selecciona un conductor y un precio estimado válido.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    const success = await asignarConductorSolicitud(
+      currentSolicitud.id,
+      selectedConductorId,
+      Number(precioEstimado),
+    )
+
+    if (success) {
+      toast({
+        title: "Conductor Asignado",
+        description: "El conductor ha sido asignado a la solicitud especial.",
+      })
+      setIsAssignDialogOpen(false)
+      setCurrentSolicitud(null)
+      setSelectedConductorId("")
+      setPrecioEstimado("")
+      // Refresh solicitudes
+      const fetchedSolicitudes = await obtenerSolicitudesEspeciales()
+      setSolicitudesEspeciales(fetchedSolicitudes)
+    } else {
+      toast({
+        title: "Error",
+        description: "No se pudo asignar el conductor.",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const handleUpdateSolicitudEstado = async (solicitudId: string, estado: SolicitudEspecial['estado']) => {
+    const success = await actualizarEstadoSolicitudEspecial(solicitudId, estado);
+    if (success) {
+      toast({
+        title: "Estado de Solicitud Actualizado",
+        description: `La solicitud ahora está en estado: ${estado}.`,
+      });
+      const fetchedSolicitudes = await obtenerSolicitudesEspeciales();
+      setSolicitudesEspeciales(fetchedSolicitudes);
+    } else {
+      toast({
+        title: "Error",
+        description: "No se pudo actualizar el estado de la solicitud.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const openRetiroDialog = (retiro: Retiro) => {
+    setCurrentRetiro(retiro)
+    setIsRetiroDialogOpen(true)
+  }
+
+  const handleProcesarRetiro = async () => {
+    if (!currentRetiro || !user?.id) return
+
+    const success = await procesarRetiro(currentRetiro.id, retiroEstado, user.id, retiroNotas)
+
+    if (success) {
+      toast({
+        title: "Retiro Procesado",
+        description: `El retiro ha sido marcado como ${retiroEstado}.`,
+      })
+      setIsRetiroDialogOpen(false)
+      setCurrentRetiro(null)
+      setRetiroNotas("")
+      setRetiroEstado("completado")
+      // Refresh retiros
+      const fetchedRetiros = await obtenerRetirosPendientes()
+      setRetirosPendientes(fetchedRetiros)
+    } else {
+      toast({
+        title: "Error",
+        description: "No se pudo procesar el retiro.",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const handleVerificarComprobante = async (pagoId: string) => {
+    if (!user?.id) return;
+    const success = await verificarComprobante(pagoId, user.id);
+    if (success) {
+      toast({
+        title: "Comprobante Verificado",
+        description: "El comprobante ha sido marcado como verificado.",
+      });
+      // Refresh transacciones to reflect the change
+      const fetchedTransacciones = await obtenerTransaccionesSecretaria();
+      setTransacciones(fetchedTransacciones);
+    } else {
+      toast({
+        title: "Error",
+        description: "No se pudo verificar el comprobante.",
+        variant: "destructive",
+      });
+    }
+  };
+
+
+  if (!secretaria) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen p-4">
+        <p className="text-lg text-gray-600">Cargando perfil de secretaría...</p>
+      </div>
+    )
   }
 
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
-      <div className="bg-purple-600 text-white p-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-xl font-bold">Secretaría - Control Central</h1>
-            <p className="text-purple-100">Sindicato 27 de Noviembre</p>
-          </div>
-          <Avatar>
+      <div className="bg-green-600 text-white p-4 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <Avatar className="h-10 w-10 border-2 border-white">
             <AvatarImage src="/placeholder-user.jpg" />
-            <AvatarFallback>SC</AvatarFallback>
+            <AvatarFallback>{secretaria.nombre?.charAt(0) || "S"}</AvatarFallback>
           </Avatar>
+          <div>
+            <h1 className="text-lg font-semibold">Hola, {secretaria.nombre || "Secretaría"}</h1>
+            <p className="text-green-100 text-sm">Panel de Administración</p>
+          </div>
         </div>
+        <Button variant="ghost" className="text-white hover:bg-green-700" onClick={signOut}>
+          Cerrar Sesión
+        </Button>
       </div>
 
-      <div className="p-4">
-        {/* Estadísticas Rápidas */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+      <div className="p-4 space-y-6">
+        {/* Resumen General */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <Card>
             <CardContent className="p-4 text-center">
-              <Car className="w-8 h-8 mx-auto mb-2 text-blue-600" />
-              <p className="text-2xl font-bold">{estadisticasHoy.totalViajes}</p>
-              <p className="text-sm text-gray-600">Viajes Hoy</p>
+              <Users className="w-8 h-8 text-blue-600 mx-auto mb-2" />
+              <p className="text-2xl font-bold">{conductores.length}</p>
+              <p className="text-sm text-gray-600">Conductores Activos</p>
             </CardContent>
           </Card>
           <Card>
             <CardContent className="p-4 text-center">
-              <Users className="w-8 h-8 mx-auto mb-2 text-green-600" />
-              <p className="text-2xl font-bold">{estadisticasHoy.totalPasajeros}</p>
-              <p className="text-sm text-gray-600">Pasajeros</p>
+              <DollarSign className="w-8 h-8 text-green-600 mx-auto mb-2" />
+              <p className="text-2xl font-bold">Bs. {transacciones.reduce((sum, t) => sum + t.monto, 0).toFixed(2)}</p>
+              <p className="text-sm text-gray-600">Total Transacciones</p>
             </CardContent>
           </Card>
           <Card>
             <CardContent className="p-4 text-center">
-              <BarChart3 className="w-8 h-8 mx-auto mb-2 text-purple-600" />
-              <p className="text-2xl font-bold">Bs. {estadisticasHoy.ingresos}</p>
-              <p className="text-sm text-gray-600">Ingresos</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-4 text-center">
-              <CheckCircle className="w-8 h-8 mx-auto mb-2 text-orange-600" />
-              <p className="text-2xl font-bold">{estadisticasHoy.conductoresActivos}</p>
-              <p className="text-sm text-gray-600">Conductores</p>
+              <Car className="w-8 h-8 text-purple-600 mx-auto mb-2" />
+              <p className="text-2xl font-bold">{solicitudesEspeciales.filter(s => s.estado === 'pendiente').length}</p>
+              <p className="text-sm text-gray-600">Solicitudes Pendientes</p>
             </CardContent>
           </Card>
         </div>
 
-        <Tabs value={selectedTab} onValueChange={setSelectedTab}>
-          <TabsList className="grid w-full grid-cols-6">
-            <TabsTrigger value="solicitudes">Solicitudes</TabsTrigger>
-            <TabsTrigger value="conductores">Conductores</TabsTrigger>
-            <TabsTrigger value="pagos">Pagos</TabsTrigger>
-            <TabsTrigger value="calificaciones">Calificaciones</TabsTrigger>
-            <TabsTrigger value="mensajes">Mensajes</TabsTrigger>
-            <TabsTrigger value="reportes">Reportes</TabsTrigger>
-          </TabsList>
+        {/* Transacciones Recientes */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg flex items-center gap-2">
+              <Receipt className="w-5 h-5" /> Transacciones Recientes
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {transacciones.length === 0 ? (
+              <p className="text-gray-500 text-center">No hay transacciones recientes.</p>
+            ) : (
+              transacciones.map((pago) => (
+                <div
+                  key={pago.id}
+                  className="flex items-center justify-between p-3 border rounded-lg bg-white shadow-sm"
+                >
+                  <div>
+                    <p className="font-medium">
+                      {pago.pasajero?.nombre} ({pago.conductor?.usuario?.nombre})
+                    </p>
+                    <p className="text-sm text-gray-600">
+                      {pago.viaje?.origen} → {pago.viaje?.destino}
+                    </p>
+                    <p className="text-xs text-gray-500">
+                      Bs. {pago.monto.toFixed(2)} - {pago.metodo_pago}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Badge
+                      className={
+                        pago.estado === "completado"
+                          ? "bg-green-500"
+                          : pago.estado === "fallido"
+                            ? "bg-red-500"
+                            : "bg-yellow-500"
+                      }
+                    >
+                      {pago.estado}
+                    </Badge>
+                    {pago.comprobante && !pago.comprobante.verificado && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleVerificarComprobante(pago.comprobante!.id)}
+                      >
+                        Verificar
+                      </Button>
+                    )}
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => router.push(`/comprobante/${pago.id}`)}
+                    >
+                      <ChevronRight className="w-5 h-5" />
+                    </Button>
+                  </div>
+                </div>
+              ))
+            )}
+          </CardContent>
+        </Card>
 
-          <TabsContent value="solicitudes" className="space-y-4">
-            <div className="space-y-3">
-              <h3 className="text-lg font-semibold">Solicitudes de Viajes Especiales</h3>
-              {solicitudesEspeciales.map((solicitud) => (
-                <Card key={solicitud.id} className="border-l-4 border-l-orange-500">
-                  <CardContent className="p-4">
-                    <div className="flex items-center justify-between mb-3">
-                      <div>
-                        <h4 className="font-semibold">{solicitud.pasajero}</h4>
-                        <p className="text-sm text-gray-600">Destino: {solicitud.destino}</p>
-                      </div>
-                      <Badge variant="outline">{solicitud.pasajeros} pasajero(s)</Badge>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-4 mb-3 text-sm text-gray-600">
-                      <div className="flex items-center gap-1">
-                        <Clock className="w-4 h-4" />
-                        {solicitud.fecha} - {solicitud.hora}
-                      </div>
-                      <div className="flex items-center gap-1">
-                        <Phone className="w-4 h-4" />
-                        {solicitud.telefono}
-                      </div>
-                    </div>
-
-                    <div className="mb-3">
-                      <p className="text-sm">
-                        <strong>Comentarios:</strong> {solicitud.comentarios}
-                      </p>
-                    </div>
-
-                    <div className="flex gap-2">
-                      <Button size="sm" className="flex-1">
-                        <CheckCircle className="w-4 h-4 mr-1" />
+        {/* Solicitudes Especiales */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg flex items-center gap-2">
+              <Plus className="w-5 h-5" /> Solicitudes Especiales
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {solicitudesEspeciales.length === 0 ? (
+              <p className="text-gray-500 text-center">No hay solicitudes especiales pendientes.</p>
+            ) : (
+              solicitudesEspeciales.map((solicitud) => (
+                <div
+                  key={solicitud.id}
+                  className="p-3 border rounded-lg bg-white shadow-sm space-y-2"
+                >
+                  <div className="flex justify-between items-center">
+                    <p className="font-medium">Pasajero: {solicitud.pasajero?.nombre}</p>
+                    <Badge
+                      className={
+                        solicitud.estado === "pendiente"
+                          ? "bg-yellow-500"
+                          : solicitud.estado === "asignado"
+                            ? "bg-blue-500"
+                            : "bg-gray-500"
+                      }
+                    >
+                      {solicitud.estado}
+                    </Badge>
+                  </div>
+                  <p className="text-sm text-gray-700">{solicitud.descripcion}</p>
+                  {solicitud.estado === "asignado" && (
+                    <p className="text-sm text-gray-600">
+                      Asignado a: {solicitud.conductor?.usuario?.nombre} (Bs. {solicitud.precio_estimado?.toFixed(2)})
+                    </p>
+                  )}
+                  <div className="flex gap-2 mt-2">
+                    {solicitud.estado === "pendiente" && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => openAssignDialog(solicitud)}
+                      >
                         Asignar Conductor
                       </Button>
-                      <Button size="sm" variant="outline">
-                        <Phone className="w-4 h-4 mr-1" />
-                        Llamar
-                      </Button>
-                      <Button size="sm" variant="outline">
-                        <MessageCircle className="w-4 h-4 mr-1" />
-                        Mensaje
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-
-            {/* Formulario para Nueva Solicitud */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Registrar Nueva Solicitud</CardTitle>
-                <CardDescription>Para solicitudes telefónicas o presenciales</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label>Nombre del Pasajero</Label>
-                    <Input placeholder="Nombre completo" />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Teléfono</Label>
-                    <Input placeholder="+591 70000000" />
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label>Destino</Label>
-                    <Input placeholder="Ciudad de destino" />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Número de Pasajeros</Label>
-                    <Select>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Seleccionar" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="1">1 pasajero</SelectItem>
-                        <SelectItem value="2">2 pasajeros</SelectItem>
-                        <SelectItem value="3">3 pasajeros</SelectItem>
-                        <SelectItem value="4">4+ pasajeros</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label>Fecha</Label>
-                    <Input type="date" />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Hora</Label>
-                    <Input type="time" />
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <Label>Comentarios</Label>
-                  <Textarea placeholder="Detalles adicionales del viaje..." />
-                </div>
-                <Button className="w-full">Registrar Solicitud</Button>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="conductores" className="space-y-4">
-            {/* Mapa de Control Central */}
-            <Card className="mb-6">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <MapPin className="w-5 h-5" />
-                  Control Central - Todos los Vehículos
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <MapaTiempoReal
-                  vehiculos={conductoresActivos.map((conductor) => ({
-                    id: conductor.id.toString(),
-                    conductor: conductor.nombre,
-                    vehiculo: conductor.vehiculo,
-                    placa: conductor.vehiculo.split(" - ")[1] || "ABC123",
-                    lat: -17.7833 + conductor.id * 0.005,
-                    lng: -63.1821 + conductor.id * 0.005,
-                    estado: conductor.estado === "disponible" ? "disponible" : "en_viaje",
-                    pasajeros: conductor.pasajeros,
-                    capacidad: conductor.capacidad,
-                    telefono: conductor.telefono,
-                  }))}
-                  centroMapa={{ lat: -17.7833, lng: -63.1821 }}
-                  zoom={12}
-                  onVehiculoClick={(vehiculo) => {
-                    // Aquí se puede implementar lógica adicional
-                    console.log("Vehículo seleccionado:", vehiculo)
-                  }}
-                />
-              </CardContent>
-            </Card>
-
-            <div className="space-y-3">
-              <h3 className="text-lg font-semibold">Estado Detallado de Conductores</h3>
-              {conductoresActivos.map((conductor) => (
-                <Card key={conductor.id}>
-                  <CardContent className="p-4">
-                    <div className="flex items-center justify-between mb-3">
-                      <div className="flex items-center gap-3">
-                        <Avatar>
-                          <AvatarImage src="/placeholder-user.jpg" />
-                          <AvatarFallback>
-                            {conductor.nombre
-                              .split(" ")
-                              .map((n) => n[0])
-                              .join("")}
-                          </AvatarFallback>
-                        </Avatar>
-                        <div>
-                          <h4 className="font-semibold">{conductor.nombre}</h4>
-                          <p className="text-sm text-gray-600">{conductor.vehiculo}</p>
-                        </div>
-                      </div>
-                      <Badge variant={conductor.estado === "disponible" ? "default" : "secondary"}>
-                        {conductor.estado === "disponible" ? "Disponible" : "En Viaje"}
-                      </Badge>
-                    </div>
-
-                    <div className="flex items-center justify-between mb-3">
-                      <div className="flex items-center gap-4 text-sm text-gray-600">
-                        <div className="flex items-center gap-1">
-                          <MapPin className="w-4 h-4" />
-                          {conductor.ubicacion}
-                        </div>
-                        <div className="flex items-center gap-1">
-                          <Users className="w-4 h-4" />
-                          {conductor.pasajeros}/{conductor.capacidad}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="flex gap-2">
-                      <Button size="sm" variant="outline" className="flex-1 bg-transparent">
-                        <Phone className="w-4 h-4 mr-1" />
-                        Llamar
-                      </Button>
-                      <Button size="sm" variant="outline" className="flex-1 bg-transparent">
-                        <MessageCircle className="w-4 h-4 mr-1" />
-                        Mensaje
-                      </Button>
-                      <Button size="sm" variant="outline">
-                        <MapPin className="w-4 h-4" />
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          </TabsContent>
-
-          <TabsContent value="pagos" className="space-y-4">
-            {/* Resumen Financiero */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <Card>
-                <CardContent className="p-4 text-center">
-                  <DollarSign className="w-8 h-8 mx-auto mb-2 text-green-600" />
-                  <p className="text-2xl font-bold text-green-600">Bs. 2,790</p>
-                  <p className="text-sm text-gray-600">Ingresos Hoy</p>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardContent className="p-4 text-center">
-                  <CreditCard className="w-8 h-8 mx-auto mb-2 text-blue-600" />
-                  <p className="text-2xl font-bold text-blue-600">Bs. 279</p>
-                  <p className="text-sm text-gray-600">Comisiones</p>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardContent className="p-4 text-center">
-                  <CheckCircle className="w-8 h-8 mx-auto mb-2 text-purple-600" />
-                  <p className="text-2xl font-bold text-purple-600">186</p>
-                  <p className="text-sm text-gray-600">Transacciones</p>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardContent className="p-4 text-center">
-                  <Clock className="w-8 h-8 mx-auto mb-2 text-orange-600" />
-                  <p className="text-2xl font-bold text-orange-600">3</p>
-                  <p className="text-sm text-gray-600">Pendientes</p>
-                </CardContent>
-              </Card>
-            </div>
-
-            {/* Transacciones Recientes */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Transacciones Recientes</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-3">
-                  {transaccionesHoy.map((transaccion) => (
-                    <div key={transaccion.id} className="flex items-center justify-between p-3 border rounded-lg">
-                      <div className="flex-1">
-                        <div className="flex items-center justify-between mb-1">
-                          <p className="font-medium">{transaccion.pasajero}</p>
-                          <Badge variant={transaccion.estado === "completado" ? "default" : "secondary"}>
-                            {transaccion.estado === "completado" ? "Completado" : "Pendiente"}
-                          </Badge>
-                        </div>
-                        <p className="text-sm text-gray-600">
-                          Conductor: {transaccion.conductor} • {transaccion.metodo} • {transaccion.hora}
-                        </p>
-                      </div>
-                      <div className="text-right ml-4">
-                        <p className="font-bold">Bs. {transaccion.monto}</p>
-                        <p className="text-xs text-gray-500">Comisión: Bs. {transaccion.comision}</p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Solicitudes de Retiro */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Banknote className="w-5 h-5" />
-                  Solicitudes de Retiro
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-3">
-                  {solicitudesRetiro.map((solicitud) => (
-                    <div key={solicitud.id} className="p-4 border rounded-lg">
-                      <div className="flex items-center justify-between mb-3">
-                        <div>
-                          <h4 className="font-semibold">{solicitud.conductor}</h4>
-                          <p className="text-sm text-gray-600">
-                            {solicitud.metodo} • {solicitud.telefono || solicitud.cuenta}
-                          </p>
-                        </div>
-                        <div className="text-right">
-                          <p className="font-bold text-lg">Bs. {solicitud.monto}</p>
-                          <Badge
-                            variant={
-                              solicitud.estado === "completado"
-                                ? "default"
-                                : solicitud.estado === "procesando"
-                                  ? "secondary"
-                                  : "outline"
-                            }
-                          >
-                            {solicitud.estado === "completado"
-                              ? "Completado"
-                              : solicitud.estado === "procesando"
-                                ? "Procesando"
-                                : "Pendiente"}
-                          </Badge>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center justify-between text-sm text-gray-500 mb-3">
-                        <span>Solicitado: {solicitud.fecha}</span>
-                      </div>
-
-                      {solicitud.estado === "pendiente" && (
-                        <div className="flex gap-2">
-                          <Button size="sm" className="flex-1">
-                            <CheckCircle className="w-4 h-4 mr-1" />
-                            Aprobar
-                          </Button>
-                          <Button size="sm" variant="outline" className="flex-1 bg-transparent">
-                            <XCircle className="w-4 h-4 mr-1" />
-                            Rechazar
-                          </Button>
-                          <Button size="sm" variant="outline">
-                            <Phone className="w-4 h-4" />
-                          </Button>
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Configuración de Pagos */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Configuración de Pagos</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label>Tarifa Base</Label>
-                    <Input defaultValue="15" type="number" />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Comisión (%)</Label>
-                    <Input defaultValue="10" type="number" />
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Métodos de Pago Activos</Label>
-                  <div className="space-y-2">
-                    {[
-                      { id: "qr", nombre: "Código QR", activo: true },
-                      { id: "tigo", nombre: "Tigo Money", activo: true },
-                      { id: "union", nombre: "Banco Unión", activo: true },
-                      { id: "billetera", nombre: "Billetera Digital", activo: true },
-                      { id: "efectivo", nombre: "Efectivo", activo: true },
-                    ].map((metodo) => (
-                      <div key={metodo.id} className="flex items-center justify-between p-2 border rounded">
-                        <span>{metodo.nombre}</span>
-                        <Switch checked={metodo.activo} />
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                <Button className="w-full">Guardar Configuración</Button>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="calificaciones" className="space-y-4">
-            {/* Resumen de Calificaciones del Sindicato */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <Card>
-                <CardContent className="p-4 text-center">
-                  <Star className="w-8 h-8 mx-auto mb-2 text-yellow-500" />
-                  <p className="text-2xl font-bold text-yellow-600">4.7</p>
-                  <p className="text-sm text-gray-600">Promedio General</p>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardContent className="p-4 text-center">
-                  <Award className="w-8 h-8 mx-auto mb-2 text-green-600" />
-                  <p className="text-2xl font-bold text-green-600">6</p>
-                  <p className="text-sm text-gray-600">Conductores 5★</p>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardContent className="p-4 text-center">
-                  <MessageCircle className="w-8 h-8 mx-auto mb-2 text-blue-600" />
-                  <p className="text-2xl font-bold text-blue-600">342</p>
-                  <p className="text-sm text-gray-600">Comentarios</p>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardContent className="p-4 text-center">
-                  <CheckCircle className="w-8 h-8 mx-auto mb-2 text-purple-600" />
-                  <p className="text-2xl font-bold text-purple-600">98%</p>
-                  <p className="text-sm text-gray-600">Satisfacción</p>
-                </CardContent>
-              </Card>
-            </div>
-
-            {/* Ranking de Conductores */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Ranking de Conductores</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-3">
-                  {[
-                    { nombre: "Carlos Mendoza", rating: 4.9, viajes: 127, posicion: 1 },
-                    { nombre: "María González", rating: 4.8, viajes: 98, posicion: 2 },
-                    { nombre: "Pedro Rojas", rating: 4.7, viajes: 156, posicion: 3 },
-                    { nombre: "Ana Morales", rating: 4.6, viajes: 89, posicion: 4 },
-                  ].map((conductor) => (
-                    <div key={conductor.nombre} className="flex items-center gap-4 p-3 border rounded-lg">
-                      <div
-                        className={`w-8 h-8 rounded-full flex items-center justify-center text-white font-bold ${
-                          conductor.posicion === 1
-                            ? "bg-yellow-500"
-                            : conductor.posicion === 2
-                              ? "bg-gray-400"
-                              : conductor.posicion === 3
-                                ? "bg-orange-600"
-                                : "bg-gray-300"
-                        }`}
+                    )}
+                    {solicitud.estado === "asignado" && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleUpdateSolicitudEstado(solicitud.id, "completado")}
                       >
-                        {conductor.posicion}
-                      </div>
-                      <Avatar className="w-10 h-10">
-                        <AvatarImage src="/placeholder-user.jpg" />
-                        <AvatarFallback>
-                          {conductor.nombre
-                            .split(" ")
-                            .map((n) => n[0])
-                            .join("")}
-                        </AvatarFallback>
-                      </Avatar>
-                      <div className="flex-1">
-                        <p className="font-semibold">{conductor.nombre}</p>
-                        <p className="text-sm text-gray-600">{conductor.viajes} viajes</p>
-                      </div>
-                      <div className="flex items-center gap-1">
-                        <Star className="w-4 h-4 fill-yellow-400 text-yellow-400" />
-                        <span className="font-bold">{conductor.rating}</span>
-                      </div>
-                      <Button size="sm" variant="outline">
-                        Ver Perfil
+                        Marcar Completada
                       </Button>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Comentarios Recientes que Requieren Atención */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Comentarios que Requieren Atención</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-3">
-                  {[
-                    {
-                      pasajero: "Juan Pérez",
-                      conductor: "Luis Vargas",
-                      rating: 2,
-                      comentario: "El vehículo tenía problemas mecánicos",
-                      fecha: "2024-01-15",
-                    },
-                    {
-                      pasajero: "Carmen Ruiz",
-                      conductor: "Pedro Rojas",
-                      rating: 3,
-                      comentario: "Llegó 15 minutos tarde",
-                      fecha: "2024-01-14",
-                    },
-                  ].map((comentario, index) => (
-                    <div key={index} className="p-3 border-l-4 border-l-red-500 bg-red-50 rounded-lg">
-                      <div className="flex items-center justify-between mb-2">
-                        <p className="font-semibold">
-                          {comentario.pasajero} → {comentario.conductor}
-                        </p>
-                        <div className="flex items-center gap-1">
-                          {[...Array(5)].map((_, i) => (
-                            <Star
-                              key={i}
-                              className={`w-4 h-4 ${i < comentario.rating ? "fill-red-400 text-red-400" : "text-gray-300"}`}
-                            />
-                          ))}
-                        </div>
-                      </div>
-                      <p className="text-sm text-gray-700 mb-2">{comentario.comentario}</p>
-                      <div className="flex items-center justify-between">
-                        <p className="text-xs text-gray-500">{comentario.fecha}</p>
-                        <div className="flex gap-2">
-                          <Button size="sm" variant="outline">
-                            Contactar Conductor
-                          </Button>
-                          <Button size="sm" variant="outline">
-                            Marcar como Revisado
-                          </Button>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="mensajes" className="space-y-4">
-            {/* Enviar Mensaje Grupal */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Enviar Mensaje a Conductores</CardTitle>
-                <CardDescription>Envía mensajes a todos los conductores o a uno específico</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-2">
-                  <Label>Destinatario</Label>
-                  <Select>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Seleccionar destinatario" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="todos">Todos los conductores</SelectItem>
-                      <SelectItem value="carlos">Carlos Mendoza</SelectItem>
-                      <SelectItem value="maria">María González</SelectItem>
-                      <SelectItem value="pedro">Pedro Rojas</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label>Mensaje</Label>
-                  <Textarea placeholder="Escribe tu mensaje aquí..." className="min-h-[100px]" />
-                </div>
-                <Button className="w-full">
-                  <Send className="w-4 h-4 mr-2" />
-                  Enviar Mensaje
-                </Button>
-              </CardContent>
-            </Card>
-
-            {/* Mensajes Predefinidos */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Mensajes Rápidos</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                <Button variant="outline" className="w-full justify-start bg-transparent">
-                  "Hay alta demanda en la ruta Warnes-Montero"
-                </Button>
-                <Button variant="outline" className="w-full justify-start bg-transparent">
-                  "Recordatorio: Reunión de conductores el viernes"
-                </Button>
-                <Button variant="outline" className="w-full justify-start bg-transparent">
-                  "Solicitud especial de viaje disponible"
-                </Button>
-                <Button variant="outline" className="w-full justify-start bg-transparent">
-                  "Favor confirmar disponibilidad para mañana"
-                </Button>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="reportes" className="space-y-4">
-            <Card>
-              <CardHeader>
-                <CardTitle>Reportes del Día</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="text-center p-4 bg-blue-50 rounded-lg">
-                    <p className="text-3xl font-bold text-blue-600">24</p>
-                    <p className="text-sm text-gray-600">Viajes Completados</p>
-                  </div>
-                  <div className="text-center p-4 bg-green-50 rounded-lg">
-                    <p className="text-3xl font-bold text-green-600">186</p>
-                    <p className="text-sm text-gray-600">Pasajeros Transportados</p>
+                    )}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleUpdateSolicitudEstado(solicitud.id, "cancelado")}
+                    >
+                      Cancelar
+                    </Button>
                   </div>
                 </div>
+              ))
+            )}
+          </CardContent>
+        </Card>
 
-                <div className="space-y-2">
-                  <h4 className="font-semibold">Rutas más Utilizadas</h4>
-                  <div className="space-y-2">
-                    <div className="flex justify-between items-center p-2 bg-gray-50 rounded">
-                      <span>Warnes → Montero</span>
-                      <Badge>14 viajes</Badge>
-                    </div>
-                    <div className="flex justify-between items-center p-2 bg-gray-50 rounded">
-                      <span>Montero → Warnes</span>
-                      <Badge>10 viajes</Badge>
-                    </div>
+        {/* Retiros Pendientes */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg flex items-center gap-2">
+              <DollarSign className="w-5 h-5" /> Retiros Pendientes
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {retirosPendientes.length === 0 ? (
+              <p className="text-gray-500 text-center">No hay retiros pendientes.</p>
+            ) : (
+              retirosPendientes.map((retiro) => (
+                <div
+                  key={retiro.id}
+                  className="flex items-center justify-between p-3 border rounded-lg bg-white shadow-sm"
+                >
+                  <div>
+                    <p className="font-medium">Conductor: {retiro.conductor?.usuario?.nombre}</p>
+                    <p className="text-sm text-gray-600">
+                      Monto: Bs. {retiro.monto.toFixed(2)} ({retiro.metodo})
+                    </p>
+                    <p className="text-xs text-gray-500">
+                      Solicitado: {new Date(retiro.created_at).toLocaleString()}
+                    </p>
                   </div>
+                  <Button variant="outline" size="sm" onClick={() => openRetiroDialog(retiro)}>
+                    Procesar
+                  </Button>
                 </div>
+              ))
+            )}
+          </CardContent>
+        </Card>
 
-                <Button className="w-full">Generar Reporte Completo</Button>
-              </CardContent>
-            </Card>
-          </TabsContent>
-        </Tabs>
+        {/* Calificaciones que Requieren Atención */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg flex items-center gap-2">
+              <Star className="w-5 h-5" /> Calificaciones a Revisar
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {calificacionesAtencion.length === 0 ? (
+              <p className="text-gray-500 text-center">No hay calificaciones que requieran atención.</p>
+            ) : (
+              calificacionesAtencion.map((calificacion) => (
+                <div
+                  key={calificacion.id}
+                  className="p-3 border rounded-lg bg-white shadow-sm space-y-2"
+                >
+                  <div className="flex justify-between items-center">
+                    <p className="font-medium">
+                      Conductor: {calificacion.conductor?.usuario?.nombre}
+                    </p>
+                    <Badge className="bg-red-500 text-white">
+                      Rating: {calificacion.rating_general} <Star className="w-3 h-3 ml-1" />
+                    </Badge>
+                  </div>
+                  <p className="text-sm text-gray-700">
+                    Pasajero: {calificacion.pasajero?.nombre}
+                  </p>
+                  <p className="text-sm text-gray-700">
+                    Comentario: {calificacion.comentario}
+                  </p>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => router.push(`/reputacion-conductor/${calificacion.conductor_id}`)}
+                  >
+                    Ver Perfil Conductor
+                  </Button>
+                </div>
+              ))
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Mensajes y Notificaciones */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg flex items-center gap-2">
+              <MessageSquare className="w-5 h-5" /> Mensajes y Notificaciones
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-3 max-h-60 overflow-y-auto">
+              {mensajes.length === 0 ? (
+                <p className="text-gray-500 text-center">No tienes mensajes.</p>
+              ) : (
+                mensajes.map((msg) => (
+                  <div
+                    key={msg.id}
+                    className={`p-3 border rounded-lg shadow-sm ${msg.leido ? "bg-gray-100" : "bg-blue-50"}`}
+                  >
+                    <div className="flex justify-between items-center mb-1">
+                      <span className="font-medium">
+                        {msg.remitente?.nombre || "Sistema"}
+                        {msg.tipo === "broadcast" && " (Broadcast)"}
+                      </span>
+                      <span className="text-xs text-gray-500">
+                        {new Date(msg.created_at).toLocaleString()}
+                      </span>
+                    </div>
+                    <p className="text-sm text-gray-800">{msg.mensaje}</p>
+                    {!msg.leido && (
+                      <Button
+                        variant="link"
+                        size="sm"
+                        className="p-0 h-auto text-blue-600"
+                        onClick={() => handleMarcarLeido(msg.id)}
+                      >
+                        Marcar como leído
+                      </Button>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+            <div className="flex gap-2">
+              <Input
+                placeholder="Enviar mensaje a todos los usuarios/conductores..."
+                value={mensajeNuevo}
+                onChange={(e) => setMensajeNuevo(e.target.value)}
+                className="flex-1"
+              />
+              <Button onClick={handleEnviarMensaje} size="icon">
+                <Send className="w-4 h-4" />
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Enlaces Rápidos */}
+        <div className="grid grid-cols-2 gap-4">
+          <Button
+            variant="outline"
+            className="flex flex-col h-auto py-4 items-center justify-center text-center"
+            onClick={() => router.push("/mapa-general")}
+          >
+            <MapPin className="w-6 h-6 mb-2" />
+            Mapa General
+          </Button>
+          <Button
+            variant="outline"
+            className="flex flex-col h-auto py-4 items-center justify-center text-center"
+            onClick={() => toast({ title: "Próximamente", description: "Gestión de rutas y precios." })}
+          >
+            <DollarSign className="w-6 h-6 mb-2" />
+            Gestionar Rutas/Precios
+          </Button>
+          <Button
+            variant="outline"
+            className="flex flex-col h-auto py-4 items-center justify-center text-center"
+            onClick={() => toast({ title: "Próximamente", description: "Gestión de usuarios." })}
+          >
+            <Users className="w-6 h-6 mb-2" />
+            Gestionar Usuarios
+          </Button>
+          <Button
+            variant="outline"
+            className="flex flex-col h-auto py-4 items-center justify-center text-center"
+            onClick={() => toast({ title: "Próximamente", description: "Reportes y analytics." })}
+          >
+            <Bell className="w-6 h-6 mb-2" />
+            Reportes y Analytics
+          </Button>
+        </div>
       </div>
+
+      {/* Dialogo para Asignar Conductor */}
+      <Dialog open={isAssignDialogOpen} onOpenChange={setIsAssignDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Asignar Conductor a Solicitud Especial</DialogTitle>
+            <DialogDescription>
+              Solicitud de: {currentSolicitud?.pasajero?.nombre}
+              <br />
+              Detalle: {currentSolicitud?.descripcion}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div>
+              <Label htmlFor="select-conductor">Conductor</Label>
+              <Select value={selectedConductorId} onValueChange={setSelectedConductorId}>
+                <SelectTrigger id="select-conductor">
+                  <SelectValue placeholder="Selecciona un conductor" />
+                </SelectTrigger>
+                <SelectContent>
+                  {conductores.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>
+                      {c.usuario?.nombre} ({c.modelo_vehiculo})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label htmlFor="precio-estimado">Precio Estimado (Bs.)</Label>
+              <Input
+                id="precio-estimado"
+                type="number"
+                value={precioEstimado}
+                onChange={(e) => setPrecioEstimado(e.target.value)}
+                placeholder="Ej. 25.00"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsAssignDialogOpen(false)}>
+              Cancelar
+            </Button>
+            <Button onClick={handleAssignConductor}>Asignar</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialogo para Procesar Retiro */}
+      <Dialog open={isRetiroDialogOpen} onOpenChange={setIsRetiroDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Procesar Retiro</DialogTitle>
+            <DialogDescription>
+              Conductor: {currentRetiro?.conductor?.usuario?.nombre}
+              <br />
+              Monto: Bs. {currentRetiro?.monto.toFixed(2)}
+              <br />
+              Método: {currentRetiro?.metodo}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div>
+              <Label htmlFor="retiro-estado">Estado del Retiro</Label>
+              <Select value={retiroEstado} onValueChange={(value: "procesando" | "completado" | "rechazado") => setRetiroEstado(value)}>
+                <SelectTrigger id="retiro-estado">
+                  <SelectValue placeholder="Selecciona el estado" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="procesando">Procesando</SelectItem>
+                  <SelectItem value="completado">Completado</SelectItem>
+                  <SelectItem value="rechazado">Rechazado</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label htmlFor="retiro-notas">Notas (Opcional)</Label>
+              <Textarea
+                id="retiro-notas"
+                value={retiroNotas}
+                onChange={(e) => setRetiroNotas(e.target.value)}
+                placeholder="Añade notas sobre el procesamiento del retiro"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsRetiroDialogOpen(false)}>
+              Cancelar
+            </Button>
+            <Button onClick={handleProcesarRetiro}>Confirmar</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

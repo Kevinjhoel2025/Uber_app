@@ -2,733 +2,583 @@
 
 import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
-import { Car, MapPin, Clock, Star, Phone, MessageCircle, User, Calendar, Navigation, CheckCircle } from "lucide-react"
-import MapaTiempoReal from "@/components/mapa-tiempo-real"
-import { crearSolicitudEspecial, obtenerViajesUsuario, actualizarUsuario } from "@/lib/database"
+import { Car, MapPin, Clock, DollarSign, History, MessageSquare, Bell, QrCode, Star, ChevronRight, Plus, Send, CheckCircle, XCircle, RefreshCw } from 'lucide-react'
+import { useRouter } from "next/navigation"
 import { useAuth } from "@/hooks/use-auth"
+import {
+  obtenerUsuario,
+  obtenerRutas,
+  obtenerUbicaciones,
+  crearViaje,
+  obtenerViajesUsuario,
+  obtenerPagosUsuario,
+  obtenerMensajesUsuario,
+  enviarMensaje,
+  marcarMensajeLeido,
+  crearSolicitudEspecial,
+  obtenerConductoresActivos,
+} from "@/lib/database"
+import { Usuario, Ruta, Ubicacion, Viaje, Pago, Mensaje, Conductor } from "@/lib/supabase"
+import { toast } from "@/hooks/use-toast"
 
 export default function UsuarioDashboard() {
-  const [selectedTab, setSelectedTab] = useState("reservar")
-  const [selectedRoute, setSelectedRoute] = useState("")
-  const [selectedTime, setSelectedTime] = useState("")
-  const [saldoBilletera, setSaldoBilletera] = useState(45.5)
-  const [metodoPagoSeleccionado, setMetodoPagoSeleccionado] = useState("billetera")
-  const [viajes, setViajes] = useState([])
-  const [cargandoViajes, setCargandoViajes] = useState(false)
-  const [solicitudEspecial, setSolicitudEspecial] = useState({
-    destino: "",
-    fecha: "",
-    hora: "",
-    pasajeros: "1",
-    comentarios: "",
-  })
+  const router = useRouter()
+  const { user, signOut } = useAuth()
+  const [usuario, setUsuario] = useState<Usuario | null>(null)
+  const [rutas, setRutas] = useState<Ruta[]>([])
+  const [ubicaciones, setUbicaciones] = useState<Ubicacion[]>([])
+  const [viajes, setViajes] = useState<Viaje[]>([])
+  const [pagos, setPagos] = useState<Pago[]>([])
+  const [mensajes, setMensajes] = useState<Mensaje[]>([])
+  const [conductoresActivos, setConductoresActivos] = useState<Conductor[]>([])
 
-  const { usuario } = useAuth()
+  const [origen, setOrigen] = useState("")
+  const [destino, setDestino] = useState("")
+  const [asientos, setAsientos] = useState(1)
+  const [fechaViaje, setFechaViaje] = useState("")
+  const [horaViaje, setHoraViaje] = useState("")
+  const [montoEstimado, setMontoEstimado] = useState<number | null>(null)
+  const [conductorSeleccionado, setConductorSeleccionado] = useState<string | null>(null)
 
-  // Rutas disponibles actualizadas con Satélite Norte
-  const rutasDisponibles = [
-    { origen: "Warnes", destino: "Montero", precio: 15, duracion: "25 min" },
-    { origen: "Warnes", destino: "Satélite Norte", precio: 20, duracion: "35 min" },
-    { origen: "Montero", destino: "Warnes", precio: 15, duracion: "25 min" },
-    { origen: "Montero", destino: "Satélite Norte", precio: 15, duracion: "20 min" },
-    { origen: "Satélite Norte", destino: "Warnes", precio: 20, duracion: "35 min" },
-    { origen: "Satélite Norte", destino: "Montero", precio: 15, duracion: "20 min" },
-  ]
-
-  const autosDisponibles = [
-    {
-      id: 1,
-      conductor: "Carlos Mendoza",
-      vehiculo: "Toyota Hiace - ABC123",
-      asientosDisponibles: 3,
-      horaSalida: "14:30",
-      rating: 4.8,
-      telefono: "70123456",
-      ruta: "Warnes → Satélite Norte",
-      precio: 20,
-    },
-    {
-      id: 2,
-      conductor: "María González",
-      vehiculo: "Nissan Urvan - XYZ789",
-      asientosDisponibles: 5,
-      horaSalida: "15:00",
-      rating: 4.9,
-      telefono: "70987654",
-      ruta: "Montero → Satélite Norte",
-      precio: 15,
-    },
-    {
-      id: 3,
-      conductor: "Pedro Rojas",
-      vehiculo: "Ford Transit - DEF456",
-      asientosDisponibles: 2,
-      horaSalida: "15:30",
-      rating: 4.7,
-      telefono: "70456789",
-      ruta: "Satélite Norte → Warnes",
-      precio: 20,
-    },
-  ]
-
-  const historialViajes = [
-    {
-      id: 1,
-      fecha: "2024-01-16",
-      ruta: "Warnes → Satélite Norte",
-      conductor: "Carlos Mendoza",
-      rating: 5,
-      precio: 20,
-    },
-    {
-      id: 2,
-      fecha: "2024-01-15",
-      ruta: "Warnes → Montero",
-      conductor: "Carlos Mendoza",
-      rating: 5,
-      precio: 15,
-    },
-    {
-      id: 3,
-      fecha: "2024-01-10",
-      ruta: "Montero → Warnes",
-      conductor: "María González",
-      rating: 4,
-      precio: 15,
-    },
-  ]
-
-  const metodosDisponibles = [
-    { id: "billetera", nombre: "Mi Billetera", icono: "💳", saldo: saldoBilletera },
-    { id: "tigo", nombre: "Tigo Money", icono: "📱", disponible: true },
-    { id: "union", nombre: "Banco Unión", icono: "🏦", disponible: true },
-    { id: "qr", nombre: "Pago con QR", icono: "📷", disponible: true },
-    { id: "efectivo", nombre: "Efectivo", icono: "💵", disponible: true },
-  ]
+  const [mensajeNuevo, setMensajeNuevo] = useState("")
+  const [solicitudEspecialDetalle, setSolicitudEspecialDetalle] = useState("")
 
   useEffect(() => {
-    if (usuario && selectedTab === "viajes") {
-      cargarViajes()
+    const loadData = async () => {
+      if (user?.id) {
+        const fetchedUsuario = await obtenerUsuario(user.id)
+        setUsuario(fetchedUsuario)
+
+        const fetchedRutas = await obtenerRutas()
+        setRutas(fetchedRutas)
+
+        const fetchedUbicaciones = await obtenerUbicaciones()
+        setUbicaciones(fetchedUbicaciones)
+
+        const fetchedViajes = await obtenerViajesUsuario(user.id)
+        setViajes(fetchedViajes)
+
+        const fetchedPagos = await obtenerPagosUsuario(user.id)
+        setPagos(fetchedPagos)
+
+        const fetchedMensajes = await obtenerMensajesUsuario(user.id)
+        setMensajes(fetchedMensajes)
+
+        const fetchedConductores = await obtenerConductoresActivos()
+        setConductoresActivos(fetchedConductores)
+      }
     }
-  }, [usuario, selectedTab])
+    loadData()
+  }, [user])
 
-  const cargarViajes = async () => {
-    if (!usuario) return
-
-    setCargandoViajes(true)
-    try {
-      const viajesData = await obtenerViajesUsuario(usuario.id)
-      setViajes(viajesData)
-    } catch (error) {
-      console.error("Error cargando viajes:", error)
-    } finally {
-      setCargandoViajes(false)
+  useEffect(() => {
+    if (origen && destino) {
+      const rutaSeleccionada = rutas.find((r) => r.origen === origen && r.destino === destino)
+      if (rutaSeleccionada) {
+        setMontoEstimado(rutaSeleccionada.precio_base * asientos)
+      } else {
+        setMontoEstimado(null)
+      }
+    } else {
+      setMontoEstimado(null)
     }
-  }
+  }, [origen, destino, asientos, rutas])
 
-  const handleReservarViaje = (autoId: number) => {
-    const auto = autosDisponibles.find((a) => a.id === autoId)
-    if (auto) {
-      window.location.href = `/pago-qr?auto=${autoId}&ruta=${encodeURIComponent(auto.ruta)}&precio=${auto.precio}`
-    }
-  }
-
-  const handleLlamarConductor = (telefono: string) => {
-    window.open(`tel:${telefono}`, "_self")
-  }
-
-  const handleEnviarMensaje = (conductorId: number) => {
-    // Implementar chat o WhatsApp
-    alert(`Enviando mensaje al conductor ${conductorId}`)
-  }
-
-  const handleSolicitudEspecial = async () => {
-    if (!usuario || !solicitudEspecial.destino || !solicitudEspecial.fecha || !solicitudEspecial.hora) {
-      alert("Por favor completa todos los campos obligatorios")
+  const handleSolicitarViaje = async () => {
+    if (!user?.id || !origen || !destino || !fechaViaje || !horaViaje || !montoEstimado || !conductorSeleccionado) {
+      toast({
+        title: "Campos incompletos",
+        description: "Por favor, completa todos los campos para solicitar el viaje.",
+        variant: "destructive",
+      })
       return
     }
 
-    try {
-      const fechaViaje = new Date(`${solicitudEspecial.fecha}T${solicitudEspecial.hora}:00`)
+    const origenUbicacion = ubicaciones.find((u) => u.nombre === origen)
+    const destinoUbicacion = ubicaciones.find((u) => u.nombre === destino)
 
-      const nuevaSolicitud = await crearSolicitudEspecial({
-        pasajero_id: usuario.id,
-        destino: solicitudEspecial.destino,
-        fecha_viaje: fechaViaje.toISOString(),
-        pasajeros: Number.parseInt(solicitudEspecial.pasajeros),
-        comentarios: solicitudEspecial.comentarios,
+    if (!origenUbicacion || !destinoUbicacion) {
+      toast({
+        title: "Error de ubicación",
+        description: "No se encontraron coordenadas para el origen o destino seleccionados.",
+        variant: "destructive",
       })
+      return
+    }
 
-      if (nuevaSolicitud) {
-        alert("Solicitud enviada exitosamente. La secretaría se pondrá en contacto contigo.")
-        setSolicitudEspecial({
-          destino: "",
-          fecha: "",
-          hora: "",
-          pasajeros: "1",
-          comentarios: "",
-        })
-      } else {
-        alert("Error al enviar la solicitud. Inténtalo de nuevo.")
-      }
-    } catch (error) {
-      console.error("Error enviando solicitud:", error)
-      alert("Error al enviar la solicitud. Inténtalo de nuevo.")
+    const fechaHoraViaje = new Date(`${fechaViaje}T${horaViaje}:00`)
+
+    const nuevoViaje = await crearViaje({
+      pasajero_id: user.id,
+      conductor_id: conductorSeleccionado,
+      origen: origen,
+      destino: destino,
+      origen_lat: origenUbicacion.latitud,
+      origen_lng: origenUbicacion.longitud,
+      destino_lat: destinoUbicacion.latitud,
+      destino_lng: destinoUbicacion.longitud,
+      fecha_viaje: fechaHoraViaje.toISOString(),
+      asientos_reservados: asientos,
+      monto_total: montoEstimado,
+      // estado: "pendiente" (se establece por defecto en la función crearViaje)
+    })
+
+    if (nuevoViaje) {
+      toast({
+        title: "Viaje solicitado",
+        description: "Tu viaje ha sido solicitado exitosamente.",
+      })
+      setViajes((prev) => [nuevoViaje, ...prev])
+      // Reset form
+      setOrigen("")
+      setDestino("")
+      setAsientos(1)
+      setFechaViaje("")
+      setHoraViaje("")
+      setMontoEstimado(null)
+      setConductorSeleccionado(null)
+    } else {
+      toast({
+        title: "Error al solicitar",
+        description: "No se pudo solicitar el viaje. Intenta nuevamente.",
+        variant: "destructive",
+      })
     }
   }
 
-  const handleRecargarSaldo = (monto: number) => {
-    setSaldoBilletera((prev) => prev + monto)
-    alert(`Saldo recargado: Bs. ${monto}`)
+  const handleEnviarMensaje = async () => {
+    if (!user?.id || !mensajeNuevo.trim()) {
+      toast({
+        title: "Mensaje vacío",
+        description: "No puedes enviar un mensaje vacío.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    // Enviar mensaje como broadcast (para todos los usuarios/secretaría)
+    const success = await enviarMensaje(user.id, null, mensajeNuevo, "broadcast")
+
+    if (success) {
+      toast({
+        title: "Mensaje enviado",
+        description: "Tu mensaje ha sido enviado a la secretaría.",
+      })
+      setMensajeNuevo("")
+      // Recargar mensajes para ver el nuevo
+      const fetchedMensajes = await obtenerMensajesUsuario(user.id)
+      setMensajes(fetchedMensajes)
+    } else {
+      toast({
+        title: "Error al enviar",
+        description: "No se pudo enviar el mensaje.",
+        variant: "destructive",
+      })
+    }
   }
 
-  const handleActualizarPerfil = async (datos: any) => {
-    if (!usuario) return
-
-    try {
-      const usuarioActualizado = await actualizarUsuario(usuario.id, datos)
-      if (usuarioActualizado) {
-        alert("Perfil actualizado exitosamente")
-      } else {
-        alert("Error al actualizar el perfil")
-      }
-    } catch (error) {
-      console.error("Error actualizando perfil:", error)
-      alert("Error al actualizar el perfil")
+  const handleMarcarLeido = async (mensajeId: string) => {
+    const success = await marcarMensajeLeido(mensajeId)
+    if (success) {
+      setMensajes((prev) =>
+        prev.map((msg) => (msg.id === mensajeId ? { ...msg, leido: true } : msg)),
+      )
+    } else {
+      toast({
+        title: "Error",
+        description: "No se pudo marcar el mensaje como leído.",
+        variant: "destructive",
+      })
     }
+  }
+
+  const handleSolicitarEspecial = async () => {
+    if (!user?.id || !solicitudEspecialDetalle.trim()) {
+      toast({
+        title: "Detalle vacío",
+        description: "Por favor, describe tu solicitud especial.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    const nuevaSolicitud = await crearSolicitudEspecial({
+      pasajero_id: user.id,
+      descripcion: solicitudEspecialDetalle,
+      // estado: "pendiente" (se establece por defecto)
+    })
+
+    if (nuevaSolicitud) {
+      toast({
+        title: "Solicitud enviada",
+        description: "Tu solicitud especial ha sido enviada a la secretaría.",
+      })
+      setSolicitudEspecialDetalle("")
+    } else {
+      toast({
+        title: "Error al enviar",
+        description: "No se pudo enviar la solicitud especial.",
+        variant: "destructive",
+      })
+    }
+  }
+
+  if (!usuario) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen p-4">
+        <p className="text-lg text-gray-600">Cargando perfil de usuario...</p>
+      </div>
+    )
   }
 
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
-      <div className="bg-blue-600 text-white p-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-xl font-bold">¡Hola, {usuario?.nombre || "Usuario"}!</h1>
-            <p className="text-blue-100">Sindicato 27 de Noviembre</p>
-          </div>
-          <Avatar>
-            <AvatarImage src={usuario?.avatar_url || "/placeholder-user.jpg"} />
-            <AvatarFallback>{usuario?.nombre?.charAt(0) || "U"}</AvatarFallback>
+      <div className="bg-green-600 text-white p-4 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <Avatar className="h-10 w-10 border-2 border-white">
+            <AvatarImage src="/placeholder-user.jpg" />
+            <AvatarFallback>{usuario.nombre?.charAt(0) || "U"}</AvatarFallback>
           </Avatar>
+          <div>
+            <h1 className="text-lg font-semibold">Hola, {usuario.nombre || "Usuario"}</h1>
+            <p className="text-green-100 text-sm">Bienvenido a tu dashboard</p>
+          </div>
         </div>
+        <Button variant="ghost" className="text-white hover:bg-green-700" onClick={signOut}>
+          Cerrar Sesión
+        </Button>
       </div>
 
-      <div className="p-4">
-        <Tabs value={selectedTab} onValueChange={setSelectedTab}>
-          <TabsList className="grid w-full grid-cols-5">
-            <TabsTrigger value="reservar">Reservar</TabsTrigger>
-            <TabsTrigger value="pagos">Pagos</TabsTrigger>
-            <TabsTrigger value="viajes">Mis Viajes</TabsTrigger>
-            <TabsTrigger value="historial">Historial</TabsTrigger>
-            <TabsTrigger value="perfil">Perfil</TabsTrigger>
-          </TabsList>
-
-          <TabsContent value="reservar" className="space-y-4">
-            {/* Formulario de Reserva */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Calendar className="w-5 h-5" />
-                  Reservar Asiento
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label>Origen</Label>
-                    <Select>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Seleccionar" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="warnes">Warnes</SelectItem>
-                        <SelectItem value="montero">Montero</SelectItem>
-                        <SelectItem value="satelite-norte">Satélite Norte</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Destino</Label>
-                    <Select>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Seleccionar" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="montero">Montero</SelectItem>
-                        <SelectItem value="warnes">Warnes</SelectItem>
-                        <SelectItem value="satelite-norte">Satélite Norte</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <Label>Hora Preferida</Label>
-                  <Select value={selectedTime} onValueChange={setSelectedTime}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Seleccionar hora" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="14:30">14:30</SelectItem>
-                      <SelectItem value="15:00">15:00</SelectItem>
-                      <SelectItem value="15:30">15:30</SelectItem>
-                      <SelectItem value="16:00">16:00</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Rutas Disponibles */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Rutas Disponibles</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="grid gap-3">
-                  {rutasDisponibles.map((ruta, index) => (
-                    <div key={index} className="flex items-center justify-between p-3 border rounded-lg">
-                      <div>
-                        <p className="font-medium">
-                          {ruta.origen} → {ruta.destino}
-                        </p>
-                        <p className="text-sm text-gray-600">{ruta.duracion}</p>
-                      </div>
-                      <Badge variant="outline">Bs. {ruta.precio}</Badge>
-                    </div>
+      <div className="p-4 space-y-6">
+        {/* Sección de Solicitud de Viaje */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg flex items-center gap-2">
+              <Car className="w-5 h-5" /> Solicitar un Viaje
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div>
+              <label htmlFor="origen" className="block text-sm font-medium text-gray-700 mb-1">
+                Origen
+              </label>
+              <Select value={origen} onValueChange={setOrigen}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Selecciona el origen" />
+                </SelectTrigger>
+                <SelectContent>
+                  {ubicaciones.map((loc) => (
+                    <SelectItem key={loc.id} value={loc.nombre}>
+                      {loc.nombre}
+                    </SelectItem>
                   ))}
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Autos Disponibles */}
-            <div className="space-y-3">
-              <h3 className="text-lg font-semibold">Autos Disponibles</h3>
-              {autosDisponibles.map((auto) => (
-                <Card key={auto.id} className="border-l-4 border-l-blue-500">
-                  <CardContent className="p-4">
-                    <div className="flex items-center justify-between mb-3">
-                      <div className="flex items-center gap-3">
-                        <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
-                          <Car className="w-6 h-6 text-blue-600" />
-                        </div>
-                        <div>
-                          <h4 className="font-semibold">{auto.conductor}</h4>
-                          <p className="text-sm text-gray-600">{auto.vehiculo}</p>
-                          <p className="text-sm text-blue-600">{auto.ruta}</p>
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <div className="flex items-center gap-1">
-                          <Star className="w-4 h-4 fill-yellow-400 text-yellow-400" />
-                          <span className="text-sm">{auto.rating}</span>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center justify-between mb-3">
-                      <div className="flex items-center gap-4 text-sm text-gray-600">
-                        <div className="flex items-center gap-1">
-                          <Clock className="w-4 h-4" />
-                          {auto.horaSalida}
-                        </div>
-                        <div className="flex items-center gap-1">
-                          <User className="w-4 h-4" />
-                          {auto.asientosDisponibles} asientos
-                        </div>
-                      </div>
-                      <Badge variant="secondary">Bs. {auto.precio}</Badge>
-                    </div>
-
-                    <div className="flex gap-2">
-                      <Button className="flex-1" onClick={() => handleReservarViaje(auto.id)}>
-                        Reservar y Pagar
-                      </Button>
-                      <Button variant="outline" size="icon" onClick={() => handleLlamarConductor(auto.telefono)}>
-                        <Phone className="w-4 h-4" />
-                      </Button>
-                      <Button variant="outline" size="icon" onClick={() => handleEnviarMensaje(auto.id)}>
-                        <MessageCircle className="w-4 h-4" />
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
+                </SelectContent>
+              </Select>
             </div>
-
-            {/* Mapa de Vehículos Cercanos */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <MapPin className="w-5 h-5" />
-                  Vehículos Cercanos
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <MapaTiempoReal
-                  vehiculos={autosDisponibles.map((auto, index) => ({
-                    id: auto.id.toString(),
-                    conductor: auto.conductor,
-                    vehiculo: auto.vehiculo,
-                    placa: auto.vehiculo.split(" - ")[1] || "ABC123",
-                    lat: -17.7833 + index * 0.01,
-                    lng: -63.1821 + index * 0.01,
-                    estado: "disponible" as const,
-                    pasajeros: 12 - auto.asientosDisponibles,
-                    capacidad: 12,
-                    telefono: auto.telefono,
-                  }))}
-                  centroMapa={{ lat: -17.7833, lng: -63.1821 }}
-                  zoom={13}
-                />
-              </CardContent>
-            </Card>
-
-            {/* Solicitar Viaje Especial */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Navigation className="w-5 h-5" />
-                  Solicitar Viaje a Otro Destino
-                </CardTitle>
-                <CardDescription>Contacta con la secretaría para viajes fuera de la ruta regular</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-2">
-                  <Label>Destino</Label>
-                  <Input
-                    placeholder="Ej: Santa Cruz, Cochabamba..."
-                    value={solicitudEspecial.destino}
-                    onChange={(e) => setSolicitudEspecial((prev) => ({ ...prev, destino: e.target.value }))}
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label>Fecha</Label>
-                    <Input
-                      type="date"
-                      value={solicitudEspecial.fecha}
-                      onChange={(e) => setSolicitudEspecial((prev) => ({ ...prev, fecha: e.target.value }))}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Hora</Label>
-                    <Input
-                      type="time"
-                      value={solicitudEspecial.hora}
-                      onChange={(e) => setSolicitudEspecial((prev) => ({ ...prev, hora: e.target.value }))}
-                    />
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <Label>Número de Pasajeros</Label>
-                  <Select
-                    value={solicitudEspecial.pasajeros}
-                    onValueChange={(value) => setSolicitudEspecial((prev) => ({ ...prev, pasajeros: value }))}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="1">1 pasajero</SelectItem>
-                      <SelectItem value="2">2 pasajeros</SelectItem>
-                      <SelectItem value="3">3 pasajeros</SelectItem>
-                      <SelectItem value="4">4+ pasajeros</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label>Comentarios</Label>
-                  <Textarea
-                    placeholder="Detalles adicionales del viaje..."
-                    value={solicitudEspecial.comentarios}
-                    onChange={(e) => setSolicitudEspecial((prev) => ({ ...prev, comentarios: e.target.value }))}
-                  />
-                </div>
-                <Button className="w-full" onClick={handleSolicitudEspecial}>
-                  Enviar Solicitud a Secretaría
-                </Button>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="pagos" className="space-y-4">
-            {/* Saldo Actual */}
-            <Card className="bg-gradient-to-r from-blue-600 to-blue-700 text-white">
-              <CardContent className="p-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-blue-100 text-sm">Saldo Disponible</p>
-                    <p className="text-3xl font-bold">Bs. {saldoBilletera.toFixed(2)}</p>
-                  </div>
-                  <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center">
-                    <span className="text-2xl">💳</span>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Métodos de Pago */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <span>💳</span>
-                  Métodos de Pago
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {metodosDisponibles.map((metodo) => (
-                  <div
-                    key={metodo.id}
-                    className={`p-4 border rounded-lg cursor-pointer transition-colors ${
-                      metodoPagoSeleccionado === metodo.id ? "border-blue-500 bg-blue-50" : "border-gray-200"
-                    }`}
-                    onClick={() => setMetodoPagoSeleccionado(metodo.id)}
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <span className="text-2xl">{metodo.icono}</span>
-                        <div>
-                          <p className="font-medium">{metodo.nombre}</p>
-                          {metodo.saldo && (
-                            <p className="text-sm text-gray-600">Saldo: Bs. {metodo.saldo.toFixed(2)}</p>
-                          )}
-                        </div>
-                      </div>
-                      {metodoPagoSeleccionado === metodo.id && <CheckCircle className="w-5 h-5 text-blue-600" />}
-                    </div>
-                  </div>
-                ))}
-              </CardContent>
-            </Card>
-
-            {/* Recargar Saldo */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <span>💰</span>
-                  Recargar Saldo
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="grid grid-cols-3 gap-3">
-                  {[20, 50, 100].map((monto) => (
-                    <Button
-                      key={monto}
-                      variant="outline"
-                      className="h-12 bg-transparent"
-                      onClick={() => handleRecargarSaldo(monto)}
-                    >
-                      Bs. {monto}
-                    </Button>
+            <div>
+              <label htmlFor="destino" className="block text-sm font-medium text-gray-700 mb-1">
+                Destino
+              </label>
+              <Select value={destino} onValueChange={setDestino}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Selecciona el destino" />
+                </SelectTrigger>
+                <SelectContent>
+                  {ubicaciones.map((loc) => (
+                    <SelectItem key={loc.id} value={loc.nombre}>
+                      {loc.nombre}
+                    </SelectItem>
                   ))}
-                </div>
-                <div className="flex gap-2">
-                  <Input placeholder="Monto personalizado" type="number" id="monto-personalizado" />
-                  <Button
-                    onClick={() => {
-                      const input = document.getElementById("monto-personalizado") as HTMLInputElement
-                      const monto = Number.parseFloat(input.value)
-                      if (monto > 0) {
-                        handleRecargarSaldo(monto)
-                        input.value = ""
-                      }
-                    }}
-                  >
-                    Recargar
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Historial de Pagos */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Últimos Pagos</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-3">
-                  {[
-                    { fecha: "2024-01-16", concepto: "Viaje Warnes → Satélite Norte", monto: -20, metodo: "QR" },
-                    { fecha: "2024-01-15", concepto: "Viaje Warnes → Montero", monto: -15, metodo: "Billetera" },
-                    { fecha: "2024-01-14", concepto: "Recarga Tigo Money", monto: +50, metodo: "Tigo Money" },
-                    { fecha: "2024-01-12", concepto: "Viaje Montero → Warnes", monto: -15, metodo: "QR" },
-                  ].map((pago, index) => (
-                    <div key={index} className="flex items-center justify-between p-3 border rounded-lg">
-                      <div>
-                        <p className="font-medium">{pago.concepto}</p>
-                        <p className="text-sm text-gray-600">
-                          {pago.fecha} • {pago.metodo}
-                        </p>
-                      </div>
-                      <p className={`font-semibold ${pago.monto > 0 ? "text-green-600" : "text-red-600"}`}>
-                        {pago.monto > 0 ? "+" : ""}Bs. {Math.abs(pago.monto)}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="viajes" className="space-y-4">
-            <Card>
-              <CardHeader>
-                <CardTitle>Viajes Activos</CardTitle>
-              </CardHeader>
-              <CardContent>
-                {cargandoViajes ? (
-                  <div className="text-center py-8">
-                    <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-                    <p className="text-gray-600">Cargando viajes...</p>
-                  </div>
-                ) : viajes.length > 0 ? (
-                  <div className="space-y-3">
-                    {viajes.map((viaje: any) => (
-                      <div key={viaje.id} className="p-4 border rounded-lg">
-                        <div className="flex items-center justify-between mb-2">
-                          <p className="font-medium">
-                            {viaje.origen} → {viaje.destino}
-                          </p>
-                          <Badge variant={viaje.estado === "completado" ? "default" : "secondary"}>
-                            {viaje.estado}
-                          </Badge>
-                        </div>
-                        <p className="text-sm text-gray-600">
-                          {new Date(viaje.fecha_viaje).toLocaleDateString()} - Bs. {viaje.precio}
-                        </p>
-                        {viaje.estado === "en_curso" && (
-                          <Button
-                            size="sm"
-                            className="mt-2"
-                            onClick={() => (window.location.href = `/seguimiento/${viaje.id}`)}
-                          >
-                            Ver Seguimiento
-                          </Button>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="text-center py-8 text-gray-500">
-                    <Car className="w-12 h-12 mx-auto mb-4 opacity-50" />
-                    <p>No tienes viajes activos</p>
-                    <p className="text-sm">Reserva un asiento para ver tus viajes aquí</p>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="historial" className="space-y-4">
-            <div className="space-y-3">
-              <h3 className="text-lg font-semibold">Historial de Viajes</h3>
-              {historialViajes.map((viaje) => (
-                <Card key={viaje.id}>
-                  <CardContent className="p-4">
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="flex items-center gap-2">
-                        <MapPin className="w-4 h-4 text-gray-500" />
-                        <span className="font-medium">{viaje.ruta}</span>
-                      </div>
-                      <Badge variant="outline">Bs. {viaje.precio}</Badge>
-                    </div>
-                    <div className="flex items-center justify-between text-sm text-gray-600">
-                      <div>
-                        <p>Conductor: {viaje.conductor}</p>
-                        <p>Fecha: {viaje.fecha}</p>
-                      </div>
-                      <div className="flex items-center gap-1">
-                        {[...Array(5)].map((_, i) => (
-                          <Star
-                            key={i}
-                            className={`w-4 h-4 ${i < viaje.rating ? "fill-yellow-400 text-yellow-400" : "text-gray-300"}`}
-                          />
-                        ))}
-                      </div>
-                    </div>
-                    <div className="flex gap-2 mt-3">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="flex-1 bg-transparent"
-                        onClick={() => (window.location.href = `/calificar-viaje/${viaje.id}`)}
-                      >
-                        <Star className="w-4 h-4 mr-1" />
-                        Calificar
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="flex-1 bg-transparent"
-                        onClick={() => (window.location.href = `/reputacion-conductor/conductor-${viaje.id}`)}
-                      >
-                        Ver Perfil
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
+                </SelectContent>
+              </Select>
             </div>
-          </TabsContent>
+            <div>
+              <label htmlFor="asientos" className="block text-sm font-medium text-gray-700 mb-1">
+                Número de Asientos
+              </label>
+              <Input
+                id="asientos"
+                type="number"
+                min="1"
+                value={asientos}
+                onChange={(e) => setAsientos(parseInt(e.target.value) || 1)}
+              />
+            </div>
+            <div>
+              <label htmlFor="fechaViaje" className="block text-sm font-medium text-gray-700 mb-1">
+                Fecha del Viaje
+              </label>
+              <Input
+                id="fechaViaje"
+                type="date"
+                value={fechaViaje}
+                onChange={(e) => setFechaViaje(e.target.value)}
+              />
+            </div>
+            <div>
+              <label htmlFor="horaViaje" className="block text-sm font-medium text-gray-700 mb-1">
+                Hora del Viaje
+              </label>
+              <Input
+                id="horaViaje"
+                type="time"
+                value={horaViaje}
+                onChange={(e) => setHoraViaje(e.target.value)}
+              />
+            </div>
+            <div>
+              <label htmlFor="conductor" className="block text-sm font-medium text-gray-700 mb-1">
+                Conductor Preferido (Opcional)
+              </label>
+              <Select value={conductorSeleccionado || ""} onValueChange={setConductorSeleccionado}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Cualquier conductor disponible" />
+                </SelectTrigger>
+                <SelectContent>
+                  {conductoresActivos.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>
+                      {c.usuario?.nombre} ({c.modelo_vehiculo})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            {montoEstimado !== null && (
+              <div className="text-lg font-bold text-right">
+                Monto Estimado: <span className="text-green-600">Bs. {montoEstimado.toFixed(2)}</span>
+              </div>
+            )}
+            <Button onClick={handleSolicitarViaje} className="w-full bg-green-600 hover:bg-green-700">
+              Solicitar Viaje
+            </Button>
+          </CardContent>
+        </Card>
 
-          <TabsContent value="perfil" className="space-y-4">
-            <Card>
-              <CardHeader>
-                <CardTitle>Mi Perfil</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex items-center gap-4">
-                  <Avatar className="w-20 h-20">
-                    <AvatarImage src={usuario?.avatar_url || "/placeholder-user.jpg"} />
-                    <AvatarFallback>{usuario?.nombre?.charAt(0) || "U"}</AvatarFallback>
-                  </Avatar>
+        {/* Sección de Mis Viajes */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg flex items-center gap-2">
+              <History className="w-5 h-5" /> Mis Viajes
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {viajes.length === 0 ? (
+              <p className="text-gray-500 text-center">No tienes viajes registrados.</p>
+            ) : (
+              viajes.map((viaje) => (
+                <div
+                  key={viaje.id}
+                  className="flex items-center justify-between p-3 border rounded-lg bg-white shadow-sm"
+                >
                   <div>
-                    <h3 className="text-lg font-semibold">{usuario?.nombre || "Usuario"}</h3>
-                    <p className="text-gray-600">
-                      Usuario desde{" "}
-                      {usuario?.fecha_registro ? new Date(usuario.fecha_registro).toLocaleDateString() : "N/A"}
+                    <p className="font-medium">
+                      {viaje.origen} → {viaje.destino}
+                    </p>
+                    <p className="text-sm text-gray-600">
+                      Conductor: {viaje.conductor?.usuario?.nombre || "N/A"}
+                    </p>
+                    <p className="text-xs text-gray-500">
+                      {new Date(viaje.fecha_viaje).toLocaleString()}
                     </p>
                   </div>
+                  <div className="flex items-center gap-2">
+                    <Badge
+                      className={
+                        viaje.estado === "completado"
+                          ? "bg-green-500"
+                          : viaje.estado === "cancelado"
+                            ? "bg-red-500"
+                            : "bg-yellow-500"
+                      }
+                    >
+                      {viaje.estado}
+                    </Badge>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => router.push(`/seguimiento/${viaje.id}`)}
+                    >
+                      <ChevronRight className="w-5 h-5" />
+                    </Button>
+                  </div>
                 </div>
+              ))
+            )}
+          </CardContent>
+        </Card>
 
-                <div className="space-y-2">
-                  <Label>Nombre</Label>
-                  <Input defaultValue={usuario?.nombre || ""} id="nombre-perfil" />
-                </div>
-                <div className="space-y-2">
-                  <Label>Teléfono</Label>
-                  <Input defaultValue={usuario?.telefono || ""} id="telefono-perfil" />
-                </div>
-                <div className="space-y-2">
-                  <Label>Email</Label>
-                  <Input defaultValue={usuario?.email || ""} id="email-perfil" />
-                </div>
-
-                <Button
-                  className="w-full"
-                  onClick={() => {
-                    const nombre = (document.getElementById("nombre-perfil") as HTMLInputElement).value
-                    const telefono = (document.getElementById("telefono-perfil") as HTMLInputElement).value
-                    const email = (document.getElementById("email-perfil") as HTMLInputElement).value
-
-                    handleActualizarPerfil({ nombre, telefono, email })
-                  }}
+        {/* Sección de Mis Pagos */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg flex items-center gap-2">
+              <DollarSign className="w-5 h-5" /> Mis Pagos
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {pagos.length === 0 ? (
+              <p className="text-gray-500 text-center">No tienes pagos registrados.</p>
+            ) : (
+              pagos.map((pago) => (
+                <div
+                  key={pago.id}
+                  className="flex items-center justify-between p-3 border rounded-lg bg-white shadow-sm"
                 >
-                  Actualizar Perfil
-                </Button>
-              </CardContent>
-            </Card>
-          </TabsContent>
-        </Tabs>
+                  <div>
+                    <p className="font-medium">
+                      {pago.viaje?.origen} → {pago.viaje?.destino}
+                    </p>
+                    <p className="text-sm text-gray-600">
+                      Conductor: {pago.conductor?.usuario?.nombre || "N/A"}
+                    </p>
+                    <p className="text-xs text-gray-500">
+                      Monto: Bs. {pago.monto.toFixed(2)} - {pago.metodo_pago}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Badge
+                      className={
+                        pago.estado === "completado"
+                          ? "bg-green-500"
+                          : pago.estado === "fallido"
+                            ? "bg-red-500"
+                            : "bg-yellow-500"
+                      }
+                    >
+                      {pago.estado}
+                    </Badge>
+                    {pago.estado === "completado" && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => router.push(`/comprobante/${pago.id}`)} // Asumiendo una ruta para ver comprobante
+                      >
+                        <QrCode className="w-5 h-5" />
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              ))
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Sección de Mensajes y Notificaciones */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg flex items-center gap-2">
+              <MessageSquare className="w-5 h-5" /> Mensajes y Notificaciones
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-3 max-h-60 overflow-y-auto">
+              {mensajes.length === 0 ? (
+                <p className="text-gray-500 text-center">No tienes mensajes.</p>
+              ) : (
+                mensajes.map((msg) => (
+                  <div
+                    key={msg.id}
+                    className={`p-3 border rounded-lg shadow-sm ${msg.leido ? "bg-gray-100" : "bg-blue-50"}`}
+                  >
+                    <div className="flex justify-between items-center mb-1">
+                      <span className="font-medium">
+                        {msg.remitente?.nombre || "Sistema"}
+                        {msg.tipo === "broadcast" && " (Broadcast)"}
+                      </span>
+                      <span className="text-xs text-gray-500">
+                        {new Date(msg.created_at).toLocaleString()}
+                      </span>
+                    </div>
+                    <p className="text-sm text-gray-800">{msg.mensaje}</p>
+                    {!msg.leido && (
+                      <Button
+                        variant="link"
+                        size="sm"
+                        className="p-0 h-auto text-blue-600"
+                        onClick={() => handleMarcarLeido(msg.id)}
+                      >
+                        Marcar como leído
+                      </Button>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+            <div className="flex gap-2">
+              <Input
+                placeholder="Escribe un mensaje a secretaría..."
+                value={mensajeNuevo}
+                onChange={(e) => setMensajeNuevo(e.target.value)}
+                className="flex-1"
+              />
+              <Button onClick={handleEnviarMensaje} size="icon">
+                <Send className="w-4 h-4" />
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Sección de Solicitudes Especiales */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg flex items-center gap-2">
+              <Plus className="w-5 h-5" /> Solicitud Especial
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <Textarea
+              placeholder="Describe tu solicitud especial (ej. viaje a una ubicación no listada, necesidad de vehículo específico, etc.)"
+              value={solicitudEspecialDetalle}
+              onChange={(e) => setSolicitudEspecialDetalle(e.target.value)}
+              rows={4}
+            />
+            <Button onClick={handleSolicitarEspecial} className="w-full bg-purple-600 hover:bg-purple-700">
+              Enviar Solicitud Especial
+            </Button>
+          </CardContent>
+        </Card>
+
+        {/* Enlaces Rápidos */}
+        <div className="grid grid-cols-2 gap-4">
+          <Button
+            variant="outline"
+            className="flex flex-col h-auto py-4 items-center justify-center text-center"
+            onClick={() => router.push("/mapa-general")}
+          >
+            <MapPin className="w-6 h-6 mb-2" />
+            Mapa General
+          </Button>
+          <Button
+            variant="outline"
+            className="flex flex-col h-auto py-4 items-center justify-center text-center"
+            onClick={() => router.push("/mi-qr")}
+          >
+            <QrCode className="w-6 h-6 mb-2" />
+            Mi QR
+          </Button>
+          <Button
+            variant="outline"
+            className="flex flex-col h-auto py-4 items-center justify-center text-center"
+            onClick={() => router.push("/reputacion-conductor/some-conductor-id")}
+          >
+            <Star className="w-6 h-6 mb-2" />
+            Ver Reputación Conductor
+          </Button>
+          <Button
+            variant="outline"
+            className="flex flex-col h-auto py-4 items-center justify-center text-center"
+            onClick={() => toast({ title: "Próximamente", description: "Funcionalidad de notificaciones." })}
+          >
+            <Bell className="w-6 h-6 mb-2" />
+            Notificaciones
+          </Button>
+        </div>
       </div>
     </div>
   )
